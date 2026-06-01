@@ -48,7 +48,7 @@ func Load() (*Config, error) {
 		Env:         getEnv("PANEL_ENV", "development"),
 		DataDir:     getEnv("PANEL_DATA_DIR", "/var/panel"),
 		ConfigDir:   getEnv("PANEL_CONFIG_DIR", "/etc/panel"),
-		APIPort:     getEnvInt("PANEL_API_PORT", 2053),
+		APIPort:     getEnvInt("PANEL_API_PORT", 9090),
 		DBPath:      getEnv("PANEL_DB_PATH", "/var/panel/panel.db"),
 		JWTSecret:   getEnv("PANEL_JWT_SECRET", ""),
 		JWTExpiry:   getEnvDuration("PANEL_JWT_EXPIRY", 15*time.Minute),
