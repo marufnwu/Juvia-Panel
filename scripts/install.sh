@@ -522,12 +522,39 @@ WantedBy=multi-user.target
 EOF
 fi
 
+# Next.js UI service (standalone mode)
+if [[ -f "$INSTALL_DIR/ui/server.js" ]]; then
+    cat > /etc/systemd/system/juvia-ui.service <<EOF
+[Unit]
+Description=Juvia Panel UI (Next.js)
+After=network.target juvia-api.service
+
+[Service]
+Type=simple
+User=juvia
+Group=juvia
+WorkingDirectory=$INSTALL_DIR/ui
+ExecStart=/usr/bin/node $INSTALL_DIR/ui/server.js
+Restart=always
+RestartSec=5
+Environment=PORT=3000
+Environment=NODE_ENV=production
+EnvironmentFile=$CONFIG_DIR/env
+
+[Install]
+WantedBy=multi-user.target
+EOF
+fi
+
 systemctl daemon-reload
 
 systemctl enable juvia-agent 2>/dev/null || true
 systemctl enable juvia-api
 if [[ "$SKIP_CADDY" == "false" ]]; then
     systemctl enable juvia-caddy 2>/dev/null || true
+fi
+if [[ -f "$INSTALL_DIR/ui/server.js" ]]; then
+    systemctl enable juvia-ui 2>/dev/null || true
 fi
 
 log_info "Systemd services configured"
@@ -559,6 +586,10 @@ systemctl start juvia-api
 
 if [[ "$SKIP_CADDY" == "false" ]]; then
     systemctl start juvia-caddy 2>/dev/null || true
+fi
+
+if [[ -f "$INSTALL_DIR/ui/server.js" ]]; then
+    systemctl start juvia-ui 2>/dev/null || true
 fi
 
 log_info "Waiting for services to become healthy..."
