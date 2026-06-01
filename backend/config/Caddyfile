@@ -8,116 +8,15 @@
     }
 }
 
-# Panel domain - serves both static UI and proxies API internally
-# API is NOT publicly accessible - only through this Caddy reverse proxy
-panel.{$DOMAIN} {
-    root * /opt/panel/ui
-    encode gzip
-    file_server
-
-    # SPA routing - serve index.html for non-file requests
-    @spa {
-        not {
-            file {
-                try_files {path} {path}/ /index.html
-            }
-        }
-    }
-    rewrite @spa /index.html
-
-    # Security headers
-    header {
-        X-Frame-Options "SAMEORIGIN"
-        X-Content-Type-Options "nosniff"
-        Referrer-Policy "strict-origin-when-cross-origin"
-        -Server
-    }
-
-    # Cache static assets
-    @static {
-        file
-        path *.css *.js *.woff2 *.png *.svg *.ico
-    }
-    header @static Cache-Control "public, max-age=31536000, immutable"
-
-    # Don't cache HTML
-    @html {
-        file
-        path *.html
-    }
-    header @html Cache-Control "no-cache, no-store, must-revalidate"
-
-    # API proxy - localhost only, not publicly accessible
-    # The Go API server binds to 127.0.0.1:9090 and is never directly exposed
+# Panel UI is served by Next.js on port 2053
+# This Caddy only handles API proxy to internal backend on 9090
+:2053 {
+    # Proxy API requests to internal API server
     handle /api/* {
-        reverse_proxy localhost:9090 {
-            header_up X-Real-IP
-            header_up X-Forwarded-For
-            header_up X-Forwarded-Proto
-            header_up Host {host}
-        }
+        reverse_proxy localhost:9090
     }
-
-    # WebSocket support for real-time updates
-    @ws {
-        header Connection *Upgrade*
-        header Upgrade websocket
-        path /api/ws
-    }
-    reverse_proxy @ws localhost:9090
 
     # Health check endpoint
-    handle /health {
-        reverse_proxy localhost:9090
-    }
-}
-
-# Fallback for IP-only access (no domain configured)
-# Panel serves on port 2053 to avoid conflicts with common ports like 80
-:2053 {
-    root * /opt/panel/ui
-    encode gzip
-    file_server
-
-    # SPA routing
-    @spa {
-        not {
-            file {
-                try_files {path} {path}/ /index.html
-            }
-        }
-    }
-    rewrite @spa /index.html
-
-    # Security headers
-    header {
-        X-Frame-Options "SAMEORIGIN"
-        X-Content-Type-Options "nosniff"
-        Referrer-Policy "strict-origin-when-cross-origin"
-        -Server
-    }
-
-    # Cache static assets
-    @static {
-        file
-        path *.css *.js *.woff2 *.png *.svg *.ico
-    }
-    header @static Cache-Control "public, max-age=31536000, immutable"
-
-    # API proxy on localhost:9090
-    handle /api/* {
-        reverse_proxy localhost:9090
-    }
-
-    # WebSocket support
-    @ws {
-        header Connection *Upgrade*
-        header Upgrade websocket
-        path /api/ws
-    }
-    reverse_proxy @ws localhost:9090
-
-    # Health check
     handle /health {
         reverse_proxy localhost:9090
     }

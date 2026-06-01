@@ -1,15 +1,32 @@
 {
-  admin off
+    admin off
+    log {
+        level INFO
+    }
 }
 
-:80 {
-  root * /opt/panel/ui
-  handle_path /_next/* {
-    file_server {
-      root /opt/panel/ui/.next
+# Panel UI on port 2053 with API proxy to 9090
+:2053 {
+    root * /opt/panel/ui
+    encode gzip
+    file_server
+
+    @spa {
+        not {
+            file {
+                try_files {path} {path}/ /index.html
+            }
+        }
     }
-  }
-  reverse_proxy /api/* localhost:2053
-  try_files {path} {path}/index.html /index.html
-  file_server
+    rewrite @spa /index.html
+
+    # Proxy API requests to internal API server on port 9090
+    handle /api/* {
+        reverse_proxy localhost:9090
+    }
+
+    # Health check
+    handle /health {
+        reverse_proxy localhost:9090
+    }
 }
