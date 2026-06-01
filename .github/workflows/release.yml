@@ -60,13 +60,16 @@ jobs:
       - name: Install Frontend Dependencies
         run: cd frontend && npm ci
 
+      - name: Install ESLint
+        run: cd frontend && npm install --save-dev eslint
+
       - name: Build Frontend
         run: cd frontend && npm run build
 
       - name: Package Frontend
         run: |
           cd frontend
-          tar -czf ../build/juvia-ui.tar.gz out/
+          tar -czf ../build/juvia-ui.tar.gz .next/
 
       - name: Copy Migrations
         run: |
