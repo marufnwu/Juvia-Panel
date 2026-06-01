@@ -37,7 +37,7 @@ jobs:
           GOARCH: amd64
         run: |
           cd backend
-          go build -ldflags="-s -w" -o ../build/panel-api ./cmd/api
+          go build -ldflags="-s -w" -o ../build/juvia-api ./cmd/api
 
       - name: Build Agent Binary
         env:
@@ -46,7 +46,16 @@ jobs:
           GOARCH: amd64
         run: |
           cd backend
-          go build -ldflags="-s -w" -o ../build/panel-agent ./cmd/agent
+          go build -ldflags="-s -w" -o ../build/juvia-agent ./cmd/agent
+
+      - name: Build CLI Binary
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          cd backend
+          go build -ldflags="-s -w" -o ../build/juvia-cli ./cmd/debug
 
       - name: Install Frontend Dependencies
         run: cd frontend && npm ci
@@ -57,31 +66,40 @@ jobs:
       - name: Package Frontend
         run: |
           cd frontend
-          tar -czf ../build/panel-ui.tar.gz out/
+          tar -czf ../build/juvia-ui.tar.gz out/
 
       - name: Copy Migrations
         run: |
           mkdir -p build/migrations
           cp backend/migrations/*.sql build/migrations/
+          cp scripts/migrations/*.sql build/migrations/ 2>/dev/null || true
 
-      - name: Package Migrations
+      - name: Copy Scripts
+        run: |
+          mkdir -p build/scripts
+          cp scripts/install.sh build/scripts/
+          cp scripts/uninstall.sh build/scripts/
+          cp scripts/update.sh build/scripts/
+
+      - name: Package Release Bundle
         run: |
           cd build
-          tar -czf panel-migrations.tar.gz migrations/
+          tar -czf juvia-release.tar.gz migrations/ scripts/
 
       - name: Generate Checksums
         run: |
           cd build
-          sha256sum panel-api panel-agent panel-ui.tar.gz panel-migrations.tar.gz > checksums.txt
+          sha256sum juvia-api juvia-agent juvia-cli juvia-ui.tar.gz juvia-release.tar.gz > checksums.txt
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            build/panel-api
-            build/panel-agent
-            build/panel-ui.tar.gz
-            build/panel-migrations.tar.gz
+            build/juvia-api
+            build/juvia-agent
+            build/juvia-cli
+            build/juvia-ui.tar.gz
+            build/juvia-release.tar.gz
             build/checksums.txt
           generate_release_notes: true
         env:
