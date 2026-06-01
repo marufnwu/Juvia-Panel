@@ -8,7 +8,7 @@ app:
   install_dir: /opt/panel
 
 database:
-  url: sqlite:////var/panel/panel.db
+  path: /var/panel/panel.db
 
 security:
   master_key_file: /etc/panel/keys/master
@@ -16,7 +16,7 @@ security:
   encryption_key_file: /etc/panel/encryption-key
 
 agent:
-  socket: /var/run/juvia/agent.sock
+  socket: /var/run/panel/agent.sock
   tcp_port: 9091
 
 caddy:

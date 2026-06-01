@@ -325,6 +325,11 @@ func (h *Handler) calculateNextRun(schedule string) time.Time {
 func (h *Handler) createSystemCronJob(id, name, schedule, command string) error {
 	ctx := context.Background()
 
+	// Validate inputs to prevent injection
+	if strings.ContainsAny(id, "\n\r|;&") || strings.ContainsAny(name, "\n\r|;&") {
+		return fmt.Errorf("invalid id or name")
+	}
+
 	// Build cron entry with identifier comment
 	cronEntry := fmt.Sprintf("#PANEL_CRON_%s|%s\n%s %s\n", id, name, schedule, command)
 
@@ -339,8 +344,9 @@ func (h *Handler) createSystemCronJob(id, name, schedule, command string) error 
 	// Append new cron entry
 	newCrontab := currentCrontab + cronEntry
 
-	// Write new crontab
-	cmd = exec.CommandContext(ctx, "bash", "-c", fmt.Sprintf("echo '%s' | crontab -", newCrontab))
+	// Write new crontab using stdin pipe instead of bash -c
+	cmd = exec.CommandContext(ctx, "crontab", "-")
+	cmd.Stdin = strings.NewReader(newCrontab)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to write crontab: %w", err)
 	}
@@ -383,9 +389,10 @@ func (h *Handler) updateSystemCronJob(id, schedule, command string) error {
 		return fmt.Errorf("cron job not found")
 	}
 
-	// Write new crontab
+	// Write new crontab using stdin pipe
 	newCrontab := strings.Join(newLines, "\n")
-	cmd = exec.CommandContext(ctx, "bash", "-c", fmt.Sprintf("echo '%s' | crontab -", newCrontab))
+	cmd = exec.CommandContext(ctx, "crontab", "-")
+	cmd.Stdin = strings.NewReader(newCrontab)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to update crontab: %w", err)
 	}
@@ -422,9 +429,10 @@ func (h *Handler) deleteSystemCronJob(id string) error {
 		}
 	}
 
-	// Write new crontab
+	// Write new crontab using stdin pipe
 	newCrontab := strings.Join(newLines, "\n")
-	cmd = exec.CommandContext(ctx, "bash", "-c", fmt.Sprintf("echo '%s' | crontab -", newCrontab))
+	cmd = exec.CommandContext(ctx, "crontab", "-")
+	cmd.Stdin = strings.NewReader(newCrontab)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to delete from crontab: %w", err)
 	}
@@ -470,9 +478,10 @@ func (h *Handler) toggleSystemCronJob(id string, enable bool) error {
 		}
 	}
 
-	// Write new crontab
+	// Write new crontab using stdin pipe
 	newCrontab := strings.Join(newLines, "\n")
-	cmd = exec.CommandContext(ctx, "bash", "-c", fmt.Sprintf("echo '%s' | crontab -", newCrontab))
+	cmd = exec.CommandContext(ctx, "crontab", "-")
+	cmd.Stdin = strings.NewReader(newCrontab)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to toggle crontab: %w", err)
 	}

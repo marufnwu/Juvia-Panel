@@ -192,14 +192,14 @@ func (h *Handler) AddRule(c *gin.Context) {
 
 	ctx := context.Background()
 
-	var ufwCmd string
+	var ufwArgs []string
 	if req.Action == "allow" {
-		ufwCmd = fmt.Sprintf("allow from %s to any port %d proto %s", req.Source, req.Port, req.Protocol)
+		ufwArgs = []string{"allow", "from", req.Source, "to", "any", "port", strconv.Itoa(req.Port), "proto", req.Protocol}
 	} else {
-		ufwCmd = fmt.Sprintf("deny from %s to any port %d proto %s", req.Source, req.Port, req.Protocol)
+		ufwArgs = []string{"deny", "from", req.Source, "to", "any", "port", strconv.Itoa(req.Port), "proto", req.Protocol}
 	}
 
-	cmd := exec.CommandContext(ctx, "bash", "-c", fmt.Sprintf("echo 'y' | ufw %s", ufwCmd))
+	cmd := exec.CommandContext(ctx, "ufw", ufwArgs...)
 	output, err := cmd.CombinedOutput()
 	if err != nil && !strings.Contains(string(output), "already") {
 		c.JSON(http.StatusInternalServerError, gin.H{

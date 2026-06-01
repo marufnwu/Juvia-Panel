@@ -96,9 +96,7 @@ func (c *Caddy) addRoute(builder *strings.Builder, route AppRoute) {
 
 	// Force HTTPS if enabled
 	if route.ForceHTTPS {
-		builder.WriteString("  handle / {\n")
-		builder.WriteString("    redir https://{host}{uri}\n")
-		builder.WriteString("  }\n")
+		builder.WriteString("  redir https://{host}{uri}\n")
 	}
 
 	// Access log

@@ -6,10 +6,13 @@ on:
       - 'v*'
 
 jobs:
-  build-and-release:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,14 +30,17 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Create Build Directory
-        run: mkdir -p build
+      - name: Install cross-compiler (arm64)
+        if: matrix.arch == 'arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Build API Binary
         env:
           CGO_ENABLED: 0
           GOOS: linux
-          GOARCH: amd64
+          GOARCH: ${{ matrix.arch }}
         run: |
           cd backend
           go build -ldflags="-s -w" -o ../build/juvia-api ./cmd/api
@@ -43,7 +49,7 @@ jobs:
         env:
           CGO_ENABLED: 0
           GOOS: linux
-          GOARCH: amd64
+          GOARCH: ${{ matrix.arch }}
         run: |
           cd backend
           go build -ldflags="-s -w" -o ../build/juvia-agent ./cmd/agent
@@ -52,16 +58,13 @@ jobs:
         env:
           CGO_ENABLED: 0
           GOOS: linux
-          GOARCH: amd64
+          GOARCH: ${{ matrix.arch }}
         run: |
           cd backend
           go build -ldflags="-s -w" -o ../build/juvia-cli ./cmd/debug
 
       - name: Install Frontend Dependencies
-        run: cd frontend && npm ci
-
-      - name: Install ESLint
-        run: cd frontend && npm install --save-dev eslint
+        run: cd frontend && npm ci --legacy-peer-deps
 
       - name: Build Frontend
         run: cd frontend && npm run build
@@ -69,7 +72,7 @@ jobs:
       - name: Package Frontend
         run: |
           cd frontend
-          tar -czf ../build/juvia-ui.tar.gz .next/
+          tar -czf ../build/juvia-ui.tar.gz out/
 
       - name: Copy Migrations
         run: |
@@ -84,26 +87,56 @@ jobs:
           cp scripts/uninstall.sh build/scripts/
           cp scripts/update.sh build/scripts/
 
+      - name: Copy Caddyfile
+        run: |
+          mkdir -p build/config
+          cp backend/config/Caddyfile build/config/
+
       - name: Package Release Bundle
         run: |
           cd build
-          tar -czf juvia-release.tar.gz migrations/ scripts/
+          tar -czf juvia-release-${{ matrix.arch }}.tar.gz migrations/ scripts/ config/
 
       - name: Generate Checksums
         run: |
           cd build
-          sha256sum juvia-api juvia-agent juvia-cli juvia-ui.tar.gz juvia-release.tar.gz > checksums.txt
+          sha256sum juvia-api juvia-agent juvia-cli juvia-ui.tar.gz juvia-release-${{ matrix.arch }}.tar.gz > checksums-${{ matrix.arch }}.txt
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.arch }}
+          path: |
+            build/juvia-api
+            build/juvia-agent
+            build/juvia-cli
+            build/juvia-ui.tar.gz
+            build/juvia-release-${{ matrix.arch }}.tar.gz
+            build/checksums-${{ matrix.arch }}.txt
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: List release assets
+        run: find release-assets -type f | sort
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            build/juvia-api
-            build/juvia-agent
-            build/juvia-cli
-            build/juvia-ui.tar.gz
-            build/juvia-release.tar.gz
-            build/checksums.txt
+            release-assets/**/*.tar.gz
+            release-assets/**/*.txt
+            release-assets/build-amd64/juvia-api
+            release-assets/build-amd64/juvia-agent
+            release-assets/build-amd64/juvia-cli
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -133,7 +166,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Frontend Dependencies
-        run: cd frontend && npm ci
+        run: cd frontend && npm ci --legacy-peer-deps
 
       - name: Lint Frontend
         run: |

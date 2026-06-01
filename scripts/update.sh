@@ -21,7 +21,7 @@ DATA_DIR="${PANEL_DATA_DIR:-/var/panel}"
 CONFIG_DIR="${PANEL_CONFIG_DIR:-/etc/panel}"
 INSTALL_DIR="${PANEL_INSTALL_DIR:-/opt/panel}"
 REPO_URL="${PANEL_REPO_URL:-https://github.com/marufnwu/Juvia-Panel.git}"
-REPO_BRANCH="${PANEL_REPO_BRANCH:-main}"
+REPO_BRANCH="${PANEL_REPO_BRANCH:-master}"
 
 CURRENT_VERSION_FILE="/var/run/juvia/.version"
 
@@ -72,7 +72,7 @@ rollback_update() {
     systemctl restart juvia-api
 
     sleep 5
-    if curl -sf --max-time 10 http://localhost:2053/health > /dev/null 2>&1; then
+    if curl -sf --max-time 10 http://localhost:9090/health > /dev/null 2>&1; then
         log_info "Rollback successful"
     else
         log_error "Rollback failed! Manual intervention required."
@@ -159,84 +159,146 @@ fi
 
 log_info "Pre-update backup complete"
 
-log_step "Step 2: Cloning repository and building"
-TEMP_CLONE="/tmp/juvia-panel-update"
-rm -rf "$TEMP_CLONE"
+log_step "Step 2: Downloading update"
+DOWNLOAD_DIR="/tmp/juvia-panel-update-download"
+rm -rf "$DOWNLOAD_DIR"
+mkdir -p "$DOWNLOAD_DIR"
 
-log_info "Cloning $REPO_URL (branch: $REPO_BRANCH)..."
-if ! git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$TEMP_CLONE" 2>/dev/null; then
-    log_error "Failed to clone repository"
-    exit 1
+ARCH=$(uname -m)
+case "$ARCH" in
+    x86_64|amd64) ARCH_SUFFIX="amd64" ;;
+    aarch64|arm64) ARCH_SUFFIX="arm64" ;;
+    *) log_error "Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+
+BUILD_FROM_SOURCE=false
+
+if [[ "$TARGET_VERSION" == "latest" ]]; then
+    RELEASE_TAG=$(curl -sf "https://api.github.com/repos/marufnwu/Juvia-Panel/releases/latest" | jq -r '.tag_name // empty' 2>/dev/null || echo "")
+else
+    RELEASE_TAG="$TARGET_VERSION"
 fi
 
-NEW_VERSION=$(git -C "$TEMP_CLONE" describe --tags 2>/dev/null || git -C "$TEMP_CLONE" rev-parse --short HEAD 2>/dev/null || echo "latest")
-log_info "Cloned repository at version: $NEW_VERSION"
+if [[ -z "$RELEASE_TAG" ]]; then
+    log_warn "Could not determine release version, will build from source"
+    BUILD_FROM_SOURCE=true
+else
+    log_info "Downloading release: $RELEASE_TAG"
+    BASE_URL="https://github.com/marufnwu/Juvia-Panel/releases/download/${RELEASE_TAG}"
 
-log_info "Building Go binaries..."
-cd "$TEMP_CLONE/backend"
+    if curl -sfL "${BASE_URL}/juvia-release-${ARCH_SUFFIX}.tar.gz" -o "$DOWNLOAD_DIR/juvia-release.tar.gz"; then
+        mkdir -p "$DOWNLOAD_DIR/extracted"
+        tar xzf "$DOWNLOAD_DIR/juvia-release.tar.gz" -C "$DOWNLOAD_DIR/extracted/"
 
-# Build API server
-log_info "Building juvia-api..."
-CGO_ENABLED=0 go build -ldflags="-s -w" -o /tmp/juvia-update/juvia-api ./cmd/api/ 2>/dev/null || {
-    mkdir -p /tmp/juvia-update
-    CGO_ENABLED=0 go build -ldflags="-s -w" -o /tmp/juvia-update/juvia-api ./cmd/api/
-}
+        for binary in juvia-api juvia-agent juvia-cli; do
+            if [[ -f "$DOWNLOAD_DIR/extracted/$binary" ]]; then
+                chmod +x "$DOWNLOAD_DIR/extracted/$binary"
+            else
+                log_warn "Binary $binary not found in bundle"
+                BUILD_FROM_SOURCE=true
+            fi
+        done
+    else
+        log_warn "Failed to download release bundle, will build from source"
+        BUILD_FROM_SOURCE=true
+    fi
+fi
 
-# Build Agent daemon
-log_info "Building juvia-agent..."
-CGO_ENABLED=0 go build -ldflags="-s -w" -o /tmp/juvia-update/juvia-agent ./cmd/agent/
+if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
+    TEMP_CLONE="/tmp/juvia-panel-update"
+    rm -rf "$TEMP_CLONE"
 
-# Build CLI tool
-log_info "Building juvia-cli..."
-CGO_ENABLED=0 go build -ldflags="-s -w" -o /tmp/juvia-update/juvia-cli ./cmd/debug/
+    log_info "Cloning $REPO_URL (branch: $REPO_BRANCH)..."
+    if ! git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$TEMP_CLONE" 2>/dev/null; then
+        log_error "Failed to clone repository"
+        exit 1
+    fi
 
-log_info "Building UI..."
-cd "$TEMP_CLONE/frontend"
-npm ci --silent 2>/dev/null || true
-npm run build 2>/dev/null || {
-    log_warn "UI build failed, preserving existing UI"
-}
+    NEW_VERSION=$(git -C "$TEMP_CLONE" describe --tags 2>/dev/null || git -C "$TEMP_CLONE" rev-parse --short HEAD 2>/dev/null || echo "latest")
 
-log_info "Build complete"
+    log_info "Building Go binaries..."
+    cd "$TEMP_CLONE/backend"
+    mkdir -p "$DOWNLOAD_DIR/extracted"
+
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o "$DOWNLOAD_DIR/extracted/juvia-api" ./cmd/api/
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o "$DOWNLOAD_DIR/extracted/juvia-agent" ./cmd/agent/
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o "$DOWNLOAD_DIR/extracted/juvia-cli" ./cmd/debug/
+
+    log_info "Building UI..."
+    cd "$TEMP_CLONE/frontend"
+    npm ci --legacy-peer-deps --silent 2>/dev/null || npm install --legacy-peer-deps 2>/dev/null || true
+    npm run build 2>/dev/null || log_warn "UI build failed, preserving existing UI"
+
+    if [[ -d "$TEMP_CLONE/frontend/out" ]]; then
+        cd "$TEMP_CLONE/frontend"
+        tar -czf "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" out/
+    fi
+
+    # Copy migrations
+    mkdir -p "$DOWNLOAD_DIR/extracted/migrations"
+    cp "$TEMP_CLONE/backend/migrations/"*.sql "$DOWNLOAD_DIR/extracted/migrations/" 2>/dev/null || true
+    cp "$TEMP_CLONE/scripts/migrations/"*.sql "$DOWNLOAD_DIR/extracted/migrations/" 2>/dev/null || true
+
+    rm -rf "$TEMP_CLONE"
+    NEW_VERSION="${NEW_VERSION:-$RELEASE_TAG}"
+else
+    NEW_VERSION="$RELEASE_TAG"
+fi
+
+log_info "Download complete (version: $NEW_VERSION)"
 
 log_step "Step 3: Stopping services"
 systemctl stop juvia-agent 2>/dev/null || true
 systemctl stop juvia-api 2>/dev/null || true
 log_info "Services stopped"
 
+log_step "Step 3b: Running database migrations"
+DB_PATH="$DATA_DIR/panel.db"
+
+# First, copy any new migrations from the download
+if [[ -d "$DOWNLOAD_DIR/extracted/migrations" ]]; then
+    mkdir -p "$CONFIG_DIR/migrations"
+    cp "$DOWNLOAD_DIR/extracted/migrations/"*.sql "$CONFIG_DIR/migrations/" 2>/dev/null || true
+fi
+
+MIGRATIONS_DIR="$CONFIG_DIR/migrations"
+if [[ -f "$DB_PATH" ]] && [[ -d "$MIGRATIONS_DIR" ]]; then
+    log_info "Applying pending migrations..."
+    for migration in "$MIGRATIONS_DIR"/*.up.sql; do
+        if [[ -f "$migration" ]]; then
+            MIGRATION_NAME=$(basename "$migration")
+            sqlite3 "$DB_PATH" < "$migration" 2>/dev/null && \
+                log_info "Applied: $MIGRATION_NAME" || \
+                log_info "Already applied or skipped: $MIGRATION_NAME"
+        fi
+    done
+    log_info "Migrations complete"
+else
+    log_warn "Database or migrations directory not found, skipping migrations"
+fi
+
 log_step "Step 4: Applying update (atomic replace)"
 
-mkdir -p /tmp/juvia-update
-chmod +x /tmp/juvia-update/juvia-api /tmp/juvia-update/juvia-agent /tmp/juvia-update/juvia-cli 2>/dev/null || true
+for binary in juvia-api juvia-agent juvia-cli; do
+    if [[ -f "$DOWNLOAD_DIR/extracted/$binary" ]]; then
+        mv "/usr/local/bin/$binary" "/usr/local/bin/${binary}.old" 2>/dev/null || true
+        mv "$DOWNLOAD_DIR/extracted/$binary" "/usr/local/bin/$binary"
+        chmod +x "/usr/local/bin/$binary"
+        log_info "Updated $binary"
+    fi
+done
 
-if [[ -f /tmp/juvia-update/juvia-api ]]; then
-    mv /usr/local/bin/juvia-api /usr/local/bin/juvia-api.old 2>/dev/null || true
-    mv /tmp/juvia-update/juvia-api /usr/local/bin/juvia-api
-    chmod +x /usr/local/bin/juvia-api
-fi
-
-if [[ -f /tmp/juvia-update/juvia-agent ]]; then
-    mv /usr/local/bin/juvia-agent /usr/local/bin/juvia-agent.old 2>/dev/null || true
-    mv /tmp/juvia-update/juvia-agent /usr/local/bin/juvia-agent
-    chmod +x /usr/local/bin/juvia-agent
-fi
-
-if [[ -f /tmp/juvia-update/juvia-cli ]]; then
-    chmod +x /tmp/juvia-update/juvia-cli
-    mv /tmp/juvia-update/juvia-cli /usr/local/bin/juvia-cli 2>/dev/null || true
-fi
-
-if [[ -d "$TEMP_CLONE/frontend/out" ]]; then
+if [[ -f "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" ]]; then
     mkdir -p "$INSTALL_DIR/ui.new"
-    cp -r "$TEMP_CLONE/frontend/out/"* "$INSTALL_DIR/ui.new/"
+    tar xzf "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" -C "$INSTALL_DIR/ui.new/"
     if [[ -d "$INSTALL_DIR/ui" ]]; then
         mv "$INSTALL_DIR/ui" "$INSTALL_DIR/ui.old" 2>/dev/null || true
     fi
     mv "$INSTALL_DIR/ui.new" "$INSTALL_DIR/ui"
+    log_info "UI updated"
 fi
 
-rm -rf "$TEMP_CLONE"
-rm -rf /tmp/juvia-update
+rm -rf "$DOWNLOAD_DIR"
 log_info "Binaries and UI updated"
 
 log_step "Step 5: Starting services"
@@ -252,7 +314,7 @@ wait_for_healthy() {
     local max_wait=60
     local waited=0
     while [[ $waited -lt $max_wait ]]; do
-        if curl -sf --max-time 5 http://localhost:2053/health > /dev/null 2>&1; then
+        if curl -sf --max-time 5 http://localhost:9090/health > /dev/null 2>&1; then
             return 0
         fi
         sleep 2

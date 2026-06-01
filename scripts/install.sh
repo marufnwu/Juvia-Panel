@@ -25,7 +25,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
 
 CURRENT_STEP=0
-TOTAL_STEPS=12
+TOTAL_STEPS=10
 
 step() {
     CURRENT_STEP=$((CURRENT_STEP + 1))
@@ -202,116 +202,166 @@ usermod -aG docker juvia
 mkdir -p "$DATA_DIR"/{apps,backups,logs,volumes,tmp/builds}
 mkdir -p "$CONFIG_DIR"/{caddy,migrations,keys}
 mkdir -p "$INSTALL_DIR"/{bin,ui}
-mkdir -p /var/run/juvia
+mkdir -p /var/run/panel
 mkdir -p /usr/local/bin
 
 chown -R juvia:juvia "$DATA_DIR" 2>/dev/null || true
 chown -R juvia:juvia "$CONFIG_DIR" 2>/dev/null || true
 chown -R juvia:juvia "$INSTALL_DIR" 2>/dev/null || true
-chown -R juvia:juvia /var/run/juvia 2>/dev/null || true
+chown -R juvia:juvia /var/run/panel 2>/dev/null || true
 
 chmod 750 "$DATA_DIR"
 chmod 750 "$CONFIG_DIR"
 chmod 755 "$INSTALL_DIR"
-chmod 755 /var/run/juvia
+chmod 755 /var/run/panel
 
 log_info "Directories created with ownership set to juvia:juvia"
 
-step "Cloning Juvia Panel repository"
-TEMP_CLONE_DIR="/tmp/juvia-panel-clone"
-rm -rf "$TEMP_CLONE_DIR"
+step "Downloading Juvia Panel binaries"
+log_info "Fetching latest release from GitHub..."
 
-log_info "Cloning $REPO_URL (branch: $REPO_BRANCH)..."
-git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$TEMP_CLONE_DIR"
+ARCH=$(uname -m)
+case "$ARCH" in
+    x86_64|amd64) ARCH_SUFFIX="amd64" ;;
+    aarch64|arm64) ARCH_SUFFIX="arm64" ;;
+    *) log_error "Unsupported architecture: $ARCH"; exit 1 ;;
+esac
 
-if [[ ! -d "$TEMP_CLONE_DIR" ]]; then
-    log_error "Failed to clone repository"
-    exit 1
+DOWNLOAD_DIR="/tmp/juvia-panel-download"
+rm -rf "$DOWNLOAD_DIR"
+mkdir -p "$DOWNLOAD_DIR"
+
+# Get latest release tag from GitHub API
+RELEASE_TAG=$(curl -sf "https://api.github.com/repos/marufnwu/Juvia-Panel/releases/latest" | jq -r '.tag_name // empty' 2>/dev/null || echo "")
+
+BUILD_FROM_SOURCE=false
+
+if [[ -z "$RELEASE_TAG" ]]; then
+    log_warn "Could not fetch latest release, will build from source"
+    BUILD_FROM_SOURCE=true
+else
+    log_info "Latest release: $RELEASE_TAG"
+    BASE_URL="https://github.com/marufnwu/Juvia-Panel/releases/download/${RELEASE_TAG}"
+
+    # Download architecture-specific bundle (contains binaries + UI + migrations + config)
+    BUNDLE_URL="${BASE_URL}/juvia-release-${ARCH_SUFFIX}.tar.gz"
+    log_info "Downloading bundle from $BUNDLE_URL..."
+
+    if ! curl -sfL "$BUNDLE_URL" -o "$DOWNLOAD_DIR/juvia-release.tar.gz"; then
+        log_warn "Failed to download release bundle, will build from source"
+        BUILD_FROM_SOURCE=true
+    fi
 fi
 
-REPO_VERSION=$(git -C "$TEMP_CLONE_DIR" describe --tags 2>/dev/null || git -C "$TEMP_CLONE_DIR" rev-parse --short HEAD 2>/dev/null || echo "latest")
-log_info "Cloned repository at version: $REPO_VERSION"
+if [[ "$BUILD_FROM_SOURCE" == "false" ]]; then
+    log_info "Extracting release bundle..."
+    mkdir -p "$DOWNLOAD_DIR/extracted"
+    tar xzf "$DOWNLOAD_DIR/juvia-release.tar.gz" -C "$DOWNLOAD_DIR/extracted/"
 
-step "Building Juvia Panel binaries"
-log_info "Building Go binaries..."
+    # Install binaries
+    for binary in juvia-api juvia-agent juvia-cli; do
+        if [[ -f "$DOWNLOAD_DIR/extracted/$binary" ]]; then
+            chmod +x "$DOWNLOAD_DIR/extracted/$binary"
+            mv "$DOWNLOAD_DIR/extracted/$binary" "/usr/local/bin/$binary"
+            log_info "Installed $binary"
+        else
+            log_warn "Binary $binary not found in bundle"
+            BUILD_FROM_SOURCE=true
+        fi
+    done
 
-# Build backend binaries
-cd "$TEMP_CLONE_DIR/backend"
+    # Install UI
+    if [[ -f "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" ]]; then
+        mkdir -p "$INSTALL_DIR/ui"
+        tar xzf "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" -C "$INSTALL_DIR/ui/"
+        log_info "UI installed to $INSTALL_DIR/ui"
+    fi
 
-# Ensure Go is available
-if ! command -v go &> /dev/null; then
-    log_info "Installing Go..."
-    apt-get update -qq
-    apt-get install -y golang-go
+    # Copy migrations
+    if [[ -d "$DOWNLOAD_DIR/extracted/migrations" ]]; then
+        mkdir -p "$CONFIG_DIR/migrations"
+        cp "$DOWNLOAD_DIR/extracted/migrations/"*.sql "$CONFIG_DIR/migrations/" 2>/dev/null || true
+        log_info "Migrations copied to $CONFIG_DIR/migrations"
+    fi
+
+    # Copy Caddyfile
+    if [[ -f "$DOWNLOAD_DIR/extracted/config/Caddyfile" ]]; then
+        mkdir -p "$CONFIG_DIR/caddy"
+        cp "$DOWNLOAD_DIR/extracted/config/Caddyfile" "$CONFIG_DIR/caddy/Caddyfile"
+        log_info "Caddyfile copied to $CONFIG_DIR/caddy"
+    fi
+
+    REPO_VERSION="$RELEASE_TAG"
 fi
 
-GO_VERSION=$(go version 2>/dev/null | grep -oP '\d+\.\d+' | head -1 || echo "unknown")
-log_info "Go version: $GO_VERSION"
+if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
+    log_info "Building from source..."
+    TEMP_CLONE_DIR="/tmp/juvia-panel-clone"
+    rm -rf "$TEMP_CLONE_DIR"
 
-# Build API server
-log_info "Building panel-api..."
-CGO_ENABLED=0 go build -ldflags="-s -w" -o /usr/local/bin/juvia-api ./cmd/api/
+    log_info "Cloning $REPO_URL (branch: $REPO_BRANCH)..."
+    git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$TEMP_CLONE_DIR"
 
-# Build Agent daemon
-log_info "Building panel-agent..."
-CGO_ENABLED=0 go build -ldflags="-s -w" -o /usr/local/bin/juvia-agent ./cmd/agent/
+    if [[ ! -d "$TEMP_CLONE_DIR" ]]; then
+        log_error "Failed to clone repository"
+        exit 1
+    fi
 
-# Build CLI tool
-log_info "Building panel-cli..."
-CGO_ENABLED=0 go build -ldflags="-s -w" -o /usr/local/bin/juvia-cli ./cmd/debug/
+    REPO_VERSION=$(git -C "$TEMP_CLONE_DIR" describe --tags 2>/dev/null || git -C "$TEMP_CLONE_DIR" rev-parse --short HEAD 2>/dev/null || echo "latest")
+    log_info "Cloned repository at version: $REPO_VERSION"
+
+    # Build Go binaries
+    cd "$TEMP_CLONE_DIR/backend"
+
+    if ! command -v go &> /dev/null; then
+        log_info "Installing Go..."
+        apt-get update -qq
+        apt-get install -y golang-go
+    fi
+
+    log_info "Building Go binaries..."
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o /usr/local/bin/juvia-api ./cmd/api/
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o /usr/local/bin/juvia-agent ./cmd/agent/
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o /usr/local/bin/juvia-cli ./cmd/debug/
+
+    chmod +x /usr/local/bin/juvia-{api,agent,cli}
+
+    # Build frontend
+    if ! command -v npm &> /dev/null; then
+        log_info "Installing Node.js..."
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        apt-get install -y nodejs
+    fi
+
+    cd "$TEMP_CLONE_DIR/frontend"
+    npm install --legacy-peer-deps
+    npm run build
+
+    if [[ -d "$TEMP_CLONE_DIR/frontend/out" ]]; then
+        rm -rf "$INSTALL_DIR/ui/out"
+        cp -r "$TEMP_CLONE_DIR/frontend/out" "$INSTALL_DIR/ui/"
+    fi
+
+    # Copy migrations
+    mkdir -p "$CONFIG_DIR/migrations"
+    if [[ -d "$TEMP_CLONE_DIR/backend/migrations" ]]; then
+        cp "$TEMP_CLONE_DIR/backend/migrations/"*.sql "$CONFIG_DIR/migrations/" 2>/dev/null || true
+    fi
+    if [[ -d "$TEMP_CLONE_DIR/scripts/migrations" ]]; then
+        cp "$TEMP_CLONE_DIR/scripts/migrations/"*.sql "$CONFIG_DIR/migrations/" 2>/dev/null || true
+    fi
+
+    # Copy Caddyfile
+    if [[ -f "$TEMP_CLONE_DIR/backend/config/Caddyfile" ]]; then
+        mkdir -p "$CONFIG_DIR/caddy"
+        cp "$TEMP_CLONE_DIR/backend/config/Caddyfile" "$CONFIG_DIR/caddy/Caddyfile"
+    fi
+
+    rm -rf "$TEMP_CLONE_DIR"
+fi
 
 chmod +x /usr/local/bin/juvia-{api,agent,cli}
-log_info "Binaries built and installed"
-
-step "Building Juvia Panel UI"
-log_info "Building Next.js frontend..."
-
-if ! command -v npm &> /dev/null; then
-    log_info "Installing Node.js..."
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    apt-get install -y nodejs
-fi
-
-NODE_VERSION=$(node --version 2>/dev/null || echo "unknown")
-NPM_VERSION=$(npm --version 2>/dev/null || echo "unknown")
-log_info "Node.js version: $NODE_VERSION, npm version: $NPM_VERSION"
-
-cd "$TEMP_CLONE_DIR/frontend"
-npm install --legacy-peer-deps
-npm run build
-
-# Copy build output - Next.js outputs to out/ directory with static export
-if [[ -d "$TEMP_CLONE_DIR/frontend/out" ]]; then
-    # Remove old out and copy fresh one
-    rm -rf "$INSTALL_DIR/ui/out"
-    cp -r "$TEMP_CLONE_DIR/frontend/out" "$INSTALL_DIR/ui/"
-    cp -f "$TEMP_CLONE_DIR/frontend/package.json" "$INSTALL_DIR/ui/" 2>/dev/null || true
-    log_info "UI built and installed to $INSTALL_DIR/ui"
-else
-    log_warn "UI build directory not found, creating empty UI directory"
-    mkdir -p "$INSTALL_DIR/ui"
-fi
-
-step "Copying migrations and configuration templates"
-MIGRATIONS_DIR="$CONFIG_DIR/migrations"
-mkdir -p "$MIGRATIONS_DIR"
-
-# Copy migrations from repo
-if [[ -d "$TEMP_CLONE_DIR/backend/migrations" ]]; then
-    cp "$TEMP_CLONE_DIR/backend/migrations/"*.up.sql "$MIGRATIONS_DIR/" 2>/dev/null || true
-fi
-if [[ -d "$TEMP_CLONE_DIR/scripts/migrations" ]]; then
-    cp "$TEMP_CLONE_DIR/scripts/migrations/"*.up.sql "$MIGRATIONS_DIR/" 2>/dev/null || true
-fi
-
-# Copy config templates
-if [[ -f "$TEMP_CLONE_DIR/backend/config/Caddyfile" ]]; then
-    mkdir -p "$CONFIG_DIR/caddy"
-    cp "$TEMP_CLONE_DIR/backend/config/Caddyfile" "$CONFIG_DIR/caddy/Caddyfile"
-fi
-
-# Cleanup temp clone
-rm -rf "$TEMP_CLONE_DIR"
+log_info "Binaries installed (version: $REPO_VERSION)"
 
 step "Generating configuration"
 openssl rand -hex 32 > "$CONFIG_DIR/keys/master"
@@ -342,8 +392,8 @@ security:
   encryption_key_file: $CONFIG_DIR/encryption-key
 
 agent:
-  socket: /var/run/juvia/agent.sock
-  tcp_port: 9090
+  socket: /var/run/panel/agent.sock
+  tcp_port: 9091
 
 caddy:
   config: $CONFIG_DIR/caddy/Caddyfile
@@ -398,6 +448,15 @@ log_info "Database initialized with WAL mode and foreign keys enabled"
 step "Setting up systemd services"
 
 JWT_SECRET=$(cat "$CONFIG_DIR/jwt-secret")
+MASTER_KEY=$(cat "$CONFIG_DIR/keys/master")
+
+# Create environment file for secrets (readable only by root:juvia)
+cat > "$CONFIG_DIR/env" <<EOF
+PANEL_JWT_SECRET=$JWT_SECRET
+PANEL_MASTER_KEY=$MASTER_KEY
+EOF
+chmod 640 "$CONFIG_DIR/env"
+chown root:juvia "$CONFIG_DIR/env"
 
 cat > /etc/systemd/system/juvia-agent.service <<EOF
 [Unit]
@@ -414,8 +473,7 @@ Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-Environment="PANEL_JWT_SECRET=$JWT_SECRET"
-Environment="PANEL_MASTER_KEY=$(cat $CONFIG_DIR/keys/master)"
+EnvironmentFile=$CONFIG_DIR/env
 
 [Install]
 WantedBy=multi-user.target
@@ -436,8 +494,7 @@ Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-Environment="PANEL_JWT_SECRET=$JWT_SECRET"
-Environment="PANEL_MASTER_KEY=$(cat $CONFIG_DIR/keys/master)"
+EnvironmentFile=$CONFIG_DIR/env
 
 [Install]
 WantedBy=multi-user.target
@@ -482,13 +539,14 @@ if [[ "$SKIP_FIREWALL" == "false" ]] && command -v ufw &> /dev/null; then
     fi
 
     ufw allow 22/tcp comment 'SSH'
+    ufw allow 80/tcp comment 'HTTP (for HTTPS redirect)'
     ufw allow 2053/tcp comment 'Juvia Panel'
     ufw allow 443/tcp comment 'HTTPS'
 
     ufw delete allow 8080/tcp 2>/dev/null || true
 
-    log_info "Firewall configured with SSH, Juvia Panel (2053), HTTPS allowed"
-    FIREWALL_RULES_ADDED='[{"port":22,"protocol":"tcp","action":"allow"},{"port":2053,"protocol":"tcp","action":"allow"},{"port":443,"protocol":"tcp","action":"allow"}]'
+    log_info "Firewall configured with SSH, HTTP, Juvia Panel (2053), HTTPS allowed"
+    FIREWALL_RULES_ADDED='[{"port":22,"protocol":"tcp","action":"allow"},{"port":80,"protocol":"tcp","action":"allow"},{"port":2053,"protocol":"tcp","action":"allow"},{"port":443,"protocol":"tcp","action":"allow"}]'
 else
     log_info "Firewall configuration skipped"
     FIREWALL_RULES_ADDED='[]'

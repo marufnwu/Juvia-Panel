@@ -50,7 +50,7 @@ ssl:
 # Docker settings
 docker:
   socket_path: "/var/run/docker.sock"
-  network_name: "panel-network"
+  network_name: "panel_apps"
   registry: ""  # Default registry, e.g., "registry.example.com"
 
 # Build settings

@@ -52,6 +52,14 @@ interface AppStatusPayload {
   timestamp: number
 }
 
+function getDefaultWebSocketUrl(): string {
+  if (typeof window !== 'undefined') {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${protocol}//${window.location.host}/api/v1/stream`
+  }
+  return process.env.NEXT_PUBLIC_WS_URL || 'ws://127.0.0.1:9090/api/v1/stream'
+}
+
 class PanelWebSocket {
   private ws: WebSocket | null = null
   private url: string
@@ -66,8 +74,7 @@ class PanelWebSocket {
   private subscriptions: Set<string> = new Set()
 
   constructor(url?: string) {
-    const wsUrl = url || process.env.NEXT_PUBLIC_WS_URL || 'ws://127.0.0.1:8080/api/v1/stream'
-    this.url = wsUrl
+    this.url = url || getDefaultWebSocketUrl()
   }
 
   connect(): void {
@@ -78,6 +85,8 @@ class PanelWebSocket {
     this.isConnecting = true
 
     try {
+      // Browser WebSocket automatically sends httpOnly cookies with same-origin requests
+      // No need to pass token in URL
       this.ws = new WebSocket(this.url)
 
       this.ws.onopen = () => {

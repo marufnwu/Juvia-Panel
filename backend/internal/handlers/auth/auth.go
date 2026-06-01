@@ -3,7 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -13,6 +13,7 @@ import (
 
 	"panel-api/internal/config"
 	"panel-api/internal/database"
+	"panel-api/internal/services"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -106,17 +107,10 @@ func generateSessionID() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-// hashToken hashes a token for storage
+// hashToken hashes a token for storage using SHA-256
 func hashToken(token string) string {
-	hash := sha256(token)
-	return base64.URLEncoding.EncodeToString([]byte(hash))
-}
-
-// sha256 is a helper for hashing
-func sha256(data string) string {
-	// Using bcrypt's fast hash for token storage
-	sum, _ := bcrypt.GenerateFromPassword([]byte(data), 1)
-	return string(sum)
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
 }
 
 // generateBackupCodes generates backup codes for 2FA
@@ -244,10 +238,20 @@ func Login(c *gin.Context) {
 		true, // httpOnly
 	)
 
+	// Set access token as httpOnly cookie (not accessible via JS - prevents XSS token theft)
+	c.SetCookie(
+		"access_token",
+		accessToken,
+		int(cfg.JWTExpiry.Seconds()),
+		"/",
+		"",
+		cfg.Env == "production",
+		true, // httpOnly
+	)
+
 	c.JSON(http.StatusOK, LoginResponse{
-		AccessToken: accessToken,
-		TokenType:   "Bearer",
-		ExpiresIn:    int(cfg.JWTExpiry.Seconds()),
+		TokenType: "Bearer",
+		ExpiresIn:  int(cfg.JWTExpiry.Seconds()),
 		User: &UserInfo{
 			ID:       user.ID,
 			Email:    user.Email,
@@ -307,6 +311,17 @@ func Refresh(c *gin.Context) {
 		return
 	}
 
+	// Verify refresh token hash matches stored hash
+	tokenHash := hashToken(refreshToken)
+	if tokenHash != session.RefreshTokenHash {
+		c.JSON(http.StatusUnauthorized, ErrorResponse{
+			Error:     "invalid_token",
+			Message:   "Refresh token mismatch",
+			RequestID: requestID,
+		})
+		return
+	}
+
 	// Get user
 	var user database.User
 	err = db.GetContext(ctx, &user, "SELECT * FROM users WHERE id = ?", claims.UserID)
@@ -330,10 +345,20 @@ func Refresh(c *gin.Context) {
 		return
 	}
 
+	// Set access token as httpOnly cookie
+	c.SetCookie(
+		"access_token",
+		accessToken,
+		int(cfg.JWTExpiry.Seconds()),
+		"/",
+		"",
+		cfg.Env == "production",
+		true, // httpOnly
+	)
+
 	c.JSON(http.StatusOK, LoginResponse{
-		AccessToken: accessToken,
-		TokenType:   "Bearer",
-		ExpiresIn:   int(cfg.JWTExpiry.Seconds()),
+		TokenType: "Bearer",
+		ExpiresIn:  int(cfg.JWTExpiry.Seconds()),
 	})
 }
 
@@ -372,6 +397,17 @@ func Logout(c *gin.Context) {
 		true,
 	)
 
+	// Clear access token cookie
+	c.SetCookie(
+		"access_token",
+		"",
+		-1,
+		"/",
+		"",
+		cfg.Env == "production",
+		true,
+	)
+
 	c.JSON(http.StatusOK, gin.H{
 		"success":    true,
 		"message":    "Logged out successfully",
@@ -383,7 +419,7 @@ func Logout(c *gin.Context) {
 func Setup2FA(c *gin.Context) {
 	requestID := c.GetString("request_id")
 
-	_ = c.MustGet("config").(*config.Config) // cfg may be used in future for issuer settings
+	cfg := c.MustGet("config").(*config.Config)
 	db := c.MustGet("db").(*database.DB)
 
 	// Get user from context (set by auth middleware)
@@ -437,10 +473,20 @@ func Setup2FA(c *gin.Context) {
 	}
 
 	// Store 2FA secret and backup codes (not enabled yet)
-	// The secret is stored encrypted in production
+	// Encrypt secret and backup codes if master key is available
+	secretToStore := secret.Secret()
+	backupCodesToStore := strings.Join(backupCodes, ",")
+	if cfg.MasterKey != "" {
+		if enc, err := services.Encrypt(secret.Secret(), cfg.MasterKey); err == nil {
+			secretToStore = enc
+		}
+		if enc, err := services.Encrypt(strings.Join(backupCodes, ","), cfg.MasterKey); err == nil {
+			backupCodesToStore = enc
+		}
+	}
 	_, err = db.ExecContext(ctx,
 		"UPDATE users SET two_factor_secret = ?, two_factor_backup_codes = ? WHERE id = ?",
-		secret.Secret(), strings.Join(backupCodes, ","), userID,
+		secretToStore, backupCodesToStore, userID,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
@@ -502,8 +548,17 @@ func Verify2FA(c *gin.Context) {
 		return
 	}
 
+	// Decrypt 2FA secret if master key is available
+	twoFactorSecret := *user.TwoFactorSecret
+	cfg := c.MustGet("config").(*config.Config)
+	if cfg != nil && cfg.MasterKey != "" {
+		if dec, err := services.Decrypt(twoFactorSecret, cfg.MasterKey); err == nil {
+			twoFactorSecret = dec
+		}
+	}
+
 	// Verify TOTP code
-	if !totp.Validate(req.Code, *user.TwoFactorSecret) {
+	if !totp.Validate(req.Code, twoFactorSecret) {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{
 			Error:     "invalid_code",
 			Message:   "Invalid verification code",
@@ -813,7 +868,17 @@ func Disable2FA(c *gin.Context) {
 	}
 
 	// Verify TOTP code
-	if !totp.Validate(req.Code, *user.TwoFactorSecret) {
+	twoFactorSecret := ""
+	if user.TwoFactorSecret != nil {
+		twoFactorSecret = *user.TwoFactorSecret
+	}
+	cfg2fa := c.MustGet("config").(*config.Config)
+	if cfg2fa != nil && cfg2fa.MasterKey != "" {
+		if dec, err := services.Decrypt(twoFactorSecret, cfg2fa.MasterKey); err == nil {
+			twoFactorSecret = dec
+		}
+	}
+	if !totp.Validate(req.Code, twoFactorSecret) {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{
 			Error:     "invalid_code",
 			Message:   "Invalid verification code",

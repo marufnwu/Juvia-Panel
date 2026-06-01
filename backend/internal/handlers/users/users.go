@@ -126,11 +126,6 @@ func InviteUser(c *gin.Context) {
 
 	db := c.MustGet("db").(*database.DB)
 	inviterID := c.GetInt("user_id")
-	_ = inviterID // Used in invite creation
-	cfg := c.MustGet("config").(*gin.Context).Value("config")
-	if cfg == nil {
-		cfg = c.MustGet("config")
-	}
 
 	ctx := context.Background()
 
@@ -169,8 +164,10 @@ func InviteUser(c *gin.Context) {
 		return
 	}
 
-	// Hash token for storage
-	// In production, use bcrypt or similar
+	// Hash token for storage using SHA-256
+	h := sha256.New()
+	h.Write([]byte(token))
+	tokenHash := hex.EncodeToString(h.Sum(nil))
 
 	// Set expiration to 7 days
 	expiresAt := time.Now().Add(7 * 24 * time.Hour)
@@ -179,7 +176,7 @@ func InviteUser(c *gin.Context) {
 	_, err = db.ExecContext(ctx,
 		`INSERT INTO user_invites (id, email, role, token_hash, invited_by, expires_at, created_at) 
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		token[:12], req.Email, req.Role, token, inviterID, expiresAt, time.Now(),
+		token[:12], req.Email, req.Role, tokenHash, inviterID, expiresAt, time.Now(),
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{

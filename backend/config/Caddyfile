@@ -7,35 +7,31 @@
 
 # Serve UI and proxy API
 :2053 {
-    # Next.js static files (_next/static, etc.) - from out/ directory
-    handle /_next/* {
-        file_server {
-            root /opt/panel/ui/out
-        }
+    # Security headers
+    header {
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        -Server
+
+        # CSP: allow Next.js inline scripts and WebSocket
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     }
 
-    # Static assets
-    handle /static/* {
-        file_server {
-            root /opt/panel/ui/out
-        }
-    }
-
-    # Proxy API requests to internal API server
+    # Proxy API requests to Go backend
     handle /api/* {
         reverse_proxy localhost:9090
     }
 
-    # Health check
+    # Health check (Go backend)
     handle /health {
         reverse_proxy localhost:9090
     }
 
-    # SPA fallback - serve index.html for all other requests
+    # Everything else → Next.js UI server
     handle {
-        try_files {path} /index.html
-        file_server {
-            root /opt/panel/ui/out
-        }
+        reverse_proxy localhost:3000
     }
 }

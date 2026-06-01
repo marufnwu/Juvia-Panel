@@ -526,6 +526,16 @@ func (h *Handler) performExport(exportID, format string, includeDB, includeLogs 
 
 // exportTable exports a single table to a file
 func (h *Handler) exportTable(table, exportDir, format string) error {
+	// Whitelist allowed tables to prevent SQL injection
+	allowedTables := map[string]bool{
+		"users": true, "apps": true, "services": true, "deployments": true,
+		"backups": true, "cron_jobs": true, "domains": true, "settings": true,
+		"sessions": true, "api_keys": true, "notifications": true,
+	}
+	if !allowedTables[table] {
+		return fmt.Errorf("table not allowed: %s", table)
+	}
+
 	rows, err := h.db.Query(fmt.Sprintf("SELECT * FROM %s", table))
 	if err != nil {
 		return err

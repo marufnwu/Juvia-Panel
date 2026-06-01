@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -100,50 +101,18 @@ func MaskSecret(value string) string {
 	return value[:4] + "..." + value[len(value)-4:]
 }
 
-// deriveKey derives a 32-byte key from the master key
-// This is a simplified implementation - in production use a proper KDF
-func deriveKey(masterKey string) []byte {
-	// Simple key derivation - hash the master key to get 32 bytes
-	// Using a simple approach since we already have a strong master key
-	key := make([]byte, 32)
-	copy(key, []byte(masterKey))
-	
-	// If masterKey is shorter than 32 bytes, pad it
-	// If longer, this will truncate (which is fine for hashing)
-	for i := len(masterKey); i < 32; i++ {
-		key[i] = byte(i % 256)
-	}
-	
-	// Hash to ensure exactly 32 bytes regardless of input
-	h := hashBytes(key)
-	copy(key, h[:32])
-	
-	return key
-}
-
-// hashBytes creates a simple hash of the input bytes
-func hashBytes(data []byte) [32]byte {
-	// Simple hash function - in production use SHA-256 or similar
-	var result [32]byte
-	for i := 0; i < 32; i++ {
-		result[i] = data[i%len(data)]
-		for j := 0; j < len(data); j++ {
-			result[i] ^= data[j]
-			result[i] = result[i]*31 + byte(i)
-		}
-	}
-	return result
-}
-
+// contains checks if substr exists in s (case-sensitive)
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
 			return true
 		}
 	}
 	return false
+}
+
+// deriveKey derives a 32-byte key from the master key using SHA-256
+func deriveKey(masterKey string) []byte {
+	h := sha256.Sum256([]byte(masterKey))
+	return h[:]
 }

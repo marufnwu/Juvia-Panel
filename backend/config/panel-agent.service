@@ -5,16 +5,17 @@ Requires=docker.service
 
 [Service]
 Type=simple
-User=panel
-Group=docker
+User=juvia
+Group=juvia
 WorkingDirectory=/var/panel
 
 # Path to the agent binary
-ExecStart=/usr/local/bin/panel-agent
+ExecStart=/usr/local/bin/juvia-agent
 
 # Environment variables
 Environment=PANEL_AGENT_SOCKET=/var/run/panel/agent.sock
 Environment=PANEL_DATA_DIR=/var/panel
+EnvironmentFile=/etc/panel/env
 
 # Restart policy
 Restart=always

@@ -14,24 +14,29 @@ func CORS(cfg *config.Config) gin.HandlerFunc {
 		allowed := false
 
 		if cfg.Env == "development" {
-			c.Header("Access-Control-Allow-Origin", "*")
+			c.Header("Access-Control-Allow-Origin", origin)
 			allowed = true
-		} else if origin != "" && cfg.AllowedOrigins != "" {
-			allowedList := strings.Split(cfg.AllowedOrigins, ",")
-			for _, allowedOrigin := range allowedList {
-				if strings.TrimSpace(allowedOrigin) == origin {
-					c.Header("Access-Control-Allow-Origin", origin)
-					allowed = true
-					break
+		} else if origin != "" {
+			// In production, check allowed origins
+			if cfg.AllowedOrigins != "" {
+				allowedList := strings.Split(cfg.AllowedOrigins, ",")
+				for _, allowedOrigin := range allowedList {
+					if strings.TrimSpace(allowedOrigin) == origin {
+						c.Header("Access-Control-Allow-Origin", origin)
+						allowed = true
+						break
+					}
 				}
 			}
-		} else if origin != "" {
-			if cfg.PanelDomain != "" && strings.Contains(origin, cfg.PanelDomain) {
+
+			// Fallback: allow same-origin requests (no Origin header = same origin)
+			if !allowed && cfg.PanelDomain != "" && strings.Contains(origin, cfg.PanelDomain) {
 				c.Header("Access-Control-Allow-Origin", origin)
 				allowed = true
 			}
 		}
 
+		// Block cross-origin requests in production
 		if cfg.Env == "production" && origin != "" && !allowed {
 			c.AbortWithStatusJSON(403, gin.H{"error": "origin not allowed"})
 			return
