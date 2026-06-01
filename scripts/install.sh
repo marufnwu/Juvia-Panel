@@ -280,11 +280,11 @@ cd "$TEMP_CLONE_DIR/frontend"
 npm install --legacy-peer-deps
 npm run build
 
-# Copy build output - Next.js outputs to .next directory
-if [[ -d "$TEMP_CLONE_DIR/frontend/.next" ]]; then
-    # Remove old .next and copy fresh one
-    rm -rf "$INSTALL_DIR/ui/.next"
-    cp -r "$TEMP_CLONE_DIR/frontend/.next" "$INSTALL_DIR/ui/"
+# Copy build output - Next.js outputs to out/ directory with static export
+if [[ -d "$TEMP_CLONE_DIR/frontend/out" ]]; then
+    # Remove old out and copy fresh one
+    rm -rf "$INSTALL_DIR/ui/out"
+    cp -r "$TEMP_CLONE_DIR/frontend/out" "$INSTALL_DIR/ui/"
     cp -f "$TEMP_CLONE_DIR/frontend/package.json" "$INSTALL_DIR/ui/" 2>/dev/null || true
     log_info "UI built and installed to $INSTALL_DIR/ui"
 else

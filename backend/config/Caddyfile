@@ -7,17 +7,17 @@
 
 # Serve UI and proxy API
 :2053 {
-    # Next.js static files (_next/static, etc.)
+    # Next.js static files (_next/static, etc.) - from out/ directory
     handle /_next/* {
         file_server {
-            root /opt/panel/ui/.next/server/app
+            root /opt/panel/ui/out
         }
     }
 
     # Static assets
     handle /static/* {
         file_server {
-            root /opt/panel/ui/.next/server/app
+            root /opt/panel/ui/out
         }
     }
 
@@ -35,7 +35,7 @@
     handle {
         try_files {path} /index.html
         file_server {
-            root /opt/panel/ui/.next/server/app
+            root /opt/panel/ui/out
         }
     }
 }
