@@ -379,6 +379,8 @@ log_info "Database initialized with WAL mode and foreign keys enabled"
 
 step "Setting up systemd services"
 
+JWT_SECRET=$(cat "$CONFIG_DIR/jwt-secret")
+
 cat > /etc/systemd/system/juvia-agent.service <<EOF
 [Unit]
 Description=Juvia Panel Agent
@@ -394,6 +396,8 @@ Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
+Environment="PANEL_JWT_SECRET=$JWT_SECRET"
+Environment="PANEL_MASTER_KEY=$(cat $CONFIG_DIR/keys/master)"
 
 [Install]
 WantedBy=multi-user.target
@@ -414,6 +418,8 @@ Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
+Environment="PANEL_JWT_SECRET=$JWT_SECRET"
+Environment="PANEL_MASTER_KEY=$(cat $CONFIG_DIR/keys/master)"
 
 [Install]
 WantedBy=multi-user.target
