@@ -277,7 +277,7 @@ NPM_VERSION=$(npm --version 2>/dev/null || echo "unknown")
 log_info "Node.js version: $NODE_VERSION, npm version: $NPM_VERSION"
 
 cd "$TEMP_CLONE_DIR/frontend"
-npm ci --silent
+npm install --legacy-peer-deps
 npm run build
 
 # Copy build output (Next.js static export puts output in 'out' or '.next' depending on config)
