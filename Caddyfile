@@ -5,22 +5,23 @@
     }
 }
 
-# Panel UI on port 2053 with API proxy to 9090
+# Serve UI and proxy API
 :2053 {
-    root * /opt/panel/ui
-    encode gzip
-    file_server
-
-    @spa {
-        not {
-            file {
-                try_files {path} {path}/ /index.html
-            }
+    # Next.js static files (_next/static, etc.)
+    handle /_next/* {
+        file_server {
+            root /opt/panel/ui/.next/server/app
         }
     }
-    rewrite @spa /index.html
 
-    # Proxy API requests to internal API server on port 9090
+    # Static assets
+    handle /static/* {
+        file_server {
+            root /opt/panel/ui/.next/server/app
+        }
+    }
+
+    # Proxy API requests to internal API server
     handle /api/* {
         reverse_proxy localhost:9090
     }
@@ -28,5 +29,13 @@
     # Health check
     handle /health {
         reverse_proxy localhost:9090
+    }
+
+    # SPA fallback - serve index.html for all other requests
+    handle {
+        try_files {path} /index.html
+        file_server {
+            root /opt/panel/ui/.next/server/app
+        }
     }
 }

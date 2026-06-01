@@ -1,6 +1,3 @@
-# Caddyfile for Server Panel
-# Auto-generated - edits will be preserved but additional imports may be appended
-
 {
     admin off
     log {
@@ -8,19 +5,37 @@
     }
 }
 
-# Panel UI is served by Next.js on port 2053
-# This Caddy only handles API proxy to internal backend on 9090
+# Serve UI and proxy API
 :2053 {
+    # Next.js static files (_next/static, etc.)
+    handle /_next/* {
+        file_server {
+            root /opt/panel/ui/.next/server/app
+        }
+    }
+
+    # Static assets
+    handle /static/* {
+        file_server {
+            root /opt/panel/ui/.next/server/app
+        }
+    }
+
     # Proxy API requests to internal API server
     handle /api/* {
         reverse_proxy localhost:9090
     }
 
-    # Health check endpoint
+    # Health check
     handle /health {
         reverse_proxy localhost:9090
     }
-}
 
-# App domains are dynamically added via app-*.conf files
-import app-*.conf 2>/dev/null || ""
+    # SPA fallback - serve index.html for all other requests
+    handle {
+        try_files {path} /index.html
+        file_server {
+            root /opt/panel/ui/.next/server/app
+        }
+    }
+}
