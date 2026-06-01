@@ -323,7 +323,7 @@ cat > "$CONFIG_DIR/config.yml" <<EOF
 app:
   name: "Juvia Panel"
   host: 127.0.0.1
-  port: 2053
+  port: 9090
   env: production
   data_dir: $DATA_DIR
   log_dir: $DATA_DIR/logs
@@ -504,7 +504,7 @@ log_info "Waiting for services to become healthy..."
 MAX_WAIT=60
 WAITED=0
 while [[ $WAITED -lt $MAX_WAIT ]]; do
-    if curl -sf --max-time 5 http://localhost:2053/health > /dev/null 2>&1; then
+    if curl -sf --max-time 5 http://localhost:9090/health > /dev/null 2>&1; then
         log_info "Juvia Panel API is healthy"
         break
     fi

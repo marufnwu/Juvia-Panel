@@ -1,0 +1,15 @@
+{
+  admin off
+}
+
+:80 {
+  root * /opt/panel/ui
+  handle_path /_next/* {
+    file_server {
+      root /opt/panel/ui/.next
+    }
+  }
+  reverse_proxy /api/* localhost:2053
+  try_files {path} {path}/index.html /index.html
+  file_server
+}

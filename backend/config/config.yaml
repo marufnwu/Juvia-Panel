@@ -10,7 +10,7 @@ app:
 # Server settings  
 server:
   host: "127.0.0.1"
-  port: 2053
+  port: 9090
   shutdown_timeout: 30s
 
 # Database settings

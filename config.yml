@@ -1,0 +1,29 @@
+app:
+  name: "Juvia Panel"
+  host: 127.0.0.1
+  port: 9090
+  env: production
+  data_dir: /var/panel
+  log_dir: /var/panel/logs
+  install_dir: /opt/panel
+
+database:
+  url: sqlite:////var/panel/panel.db
+
+security:
+  master_key_file: /etc/panel/keys/master
+  jwt_secret_file: /etc/panel/jwt-secret
+  encryption_key_file: /etc/panel/encryption-key
+
+agent:
+  socket: /var/run/juvia/agent.sock
+  tcp_port: 9091
+
+caddy:
+  config: /etc/panel/caddy/Caddyfile
+  data_dir: /var/panel/caddy
+
+server:
+  domain: ""
+  panel_domain: ""
+  email: ""

@@ -1,0 +1,76 @@
+{
+  admin off
+}
+
+http:// {
+  root * /opt/panel/ui/.next/server/app
+  reverse_proxy /api/* 127.0.0.1:2053
+  
+  # Rewrite routes to add .html extension for static files
+  @login {
+    path /login /login/*
+  }
+  rewrite @login /login.html
+  
+  @setup {
+    path /setup /setup/*
+  }
+  rewrite @setup /setup.html
+  
+  @apps {
+    path /apps /apps/*
+  }
+  rewrite @apps /apps.html
+  
+  @services {
+    path /services /services/*
+  }
+  rewrite @services /services.html
+  
+  @server {
+    path /server /server/*
+  }
+  rewrite @server /server.html
+  
+  @settings {
+    path /settings /settings/*
+  }
+  rewrite @settings /settings.html
+  
+  @team {
+    path /team /team/*
+  }
+  rewrite @team /team.html
+  
+  @templates {
+    path /templates /templates/*
+  }
+  rewrite @templates /templates.html
+  
+  @backups {
+    path /backups /backups/*
+  }
+  rewrite @backups /backups.html
+  
+  @cron {
+    path /cron /cron/*
+  }
+  rewrite @cron /cron.html
+  
+  @activity {
+    path /activity /activity/*
+  }
+  rewrite @activity /activity.html
+  
+  @files {
+    path /files /files/*
+  }
+  rewrite @files /files.html
+  
+  @terminal {
+    path /terminal /terminal/*
+  }
+  rewrite @terminal /terminal.html
+  
+  file_server
+}
