@@ -599,17 +599,17 @@ export default function DashboardPage() {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <Server className="w-5 h-5 text-slate-400" />
-              <span className="text-sm text-slate-400">Uptime:</span>
-              <span className="text-sm text-white font-medium">{formatUptime(metricsDisplay.uptime)}</span>
+              <span className="text-sm text-slate-400">Connections:</span>
+              <span className="text-sm text-white font-medium">{metricsDisplay.network.connections_active}</span>
             </div>
             <div className="h-4 w-px bg-slate-700" />
             <div className="flex items-center gap-2">
               <span className="text-sm text-slate-400">Network:</span>
               <span className="text-sm text-white font-medium">
-                ↓ {formatBytes((metricsDisplay.network_in || 0) * 1024)}/s
+                ↓ {formatBytes(metricsDisplay.network.inbound_mbps * 1024 * 1024)}/s
               </span>
               <span className="text-sm text-white font-medium">
-                ↑ {formatBytes((metricsDisplay.network_out || 0) * 1024)}/s
+                ↑ {formatBytes(metricsDisplay.network.outbound_mbps * 1024 * 1024)}/s
               </span>
             </div>
           </div>
