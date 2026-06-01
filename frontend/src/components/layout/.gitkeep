@@ -1,0 +1,12 @@
+// Layout component placeholders
+// These will be implemented in Phase 4
+
+// Components to add:
+// - Navbar (top navigation)
+// - Sidebar (mobile navigation)
+// - CommandPalette (Cmd+K)
+// - NotificationPanel
+// - UserMenu
+// - Breadcrumb
+
+export {}

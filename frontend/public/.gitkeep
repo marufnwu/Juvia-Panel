@@ -1,0 +1,9 @@
+# Public Assets
+
+Static assets served from the Next.js public folder.
+
+Place static files here:
+- `favicon.ico`
+- `robots.txt`
+- Static images
+- Fonts (if not using Google Fonts CDN)

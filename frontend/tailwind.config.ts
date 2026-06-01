@@ -1,0 +1,98 @@
+import type { Config } from 'tailwindcss'
+
+const config: Config = {
+  darkMode: 'class',
+  content: [
+    './src/**/*.{js,ts,jsx,tsx,mdx}',
+  ],
+  theme: {
+    colors: {
+      primary: {
+        DEFAULT: '#2563EB',
+        50: '#DBEAFE',
+        100: '#BFDBFE',
+        200: '#93C5FD',
+        300: '#60A5FA',
+        400: '#3B82F6',
+        500: '#2563EB',
+        600: '#2563EB',
+        700: '#1D4ED8',
+        800: '#1E40AF',
+        900: '#1E3A8A',
+      },
+      success: {
+        DEFAULT: '#16A34A',
+        50: '#DCFCE7',
+        100: '#BBF7D0',
+        200: '#86EFAC',
+        300: '#4ADE80',
+        400: '#22C55E',
+        500: '#16A34A',
+        600: '#16A34A',
+        700: '#15803D',
+        800: '#166534',
+        900: '#14532D',
+      },
+      warning: {
+        DEFAULT: '#D97706',
+        50: '#FEF3C7',
+        100: '#FDE68A',
+        200: '#FCD34D',
+        300: '#FBBF24',
+        400: '#F59E0B',
+        500: '#D97706',
+        600: '#D97706',
+        700: '#B45309',
+        800: '#92400E',
+        900: '#78350F',
+      },
+      danger: {
+        DEFAULT: '#DC2626',
+        50: '#FEE2E2',
+        100: '#FECACA',
+        200: '#FCA5A5',
+        300: '#F87171',
+        400: '#EF4444',
+        500: '#DC2626',
+        600: '#DC2626',
+        700: '#B91C1C',
+        800: '#991B1B',
+        900: '#7F1D1D',
+      },
+      background: '#0F172A',
+      surface: '#1E293B',
+      border: '#334155',
+      slate: {
+        50: '#F8FAFC',
+        100: '#F1F5F9',
+        200: '#E2E8F0',
+        300: '#CBD5E1',
+        400: '#94A3B8',
+        500: '#64748B',
+        600: '#475569',
+        700: '#334155',
+        800: '#1E293B',
+        900: '#0F172A',
+        950: '#020617',
+      },
+    },
+    fontFamily: {
+      sans: ['Inter', 'system-ui', 'sans-serif'],
+      mono: ['JetBrains Mono', 'Menlo', 'monospace'],
+    },
+    borderRadius: {
+      DEFAULT: '6px',
+      card: '8px',
+      button: '6px',
+      tag: '4px',
+    },
+    extend: {
+      animation: {
+        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+      },
+    },
+  },
+  plugins: [],
+}
+
+export default config

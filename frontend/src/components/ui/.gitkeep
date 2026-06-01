@@ -1,0 +1,18 @@
+// UI component placeholders
+// These will be populated with shadcn/ui components in Phase 4
+
+// Components to add:
+// - Button
+// - Card
+// - Input
+// - Label
+// - Select
+// - Dialog
+// - DropdownMenu
+// - Table
+// - Badge
+// - Avatar
+// - Tabs
+// - etc.
+
+export {}

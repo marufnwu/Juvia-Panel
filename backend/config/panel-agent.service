@@ -1,0 +1,40 @@
+[Unit]
+Description=Panel Agent Daemon
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=panel
+Group=docker
+WorkingDirectory=/var/panel
+
+# Path to the agent binary
+ExecStart=/usr/local/bin/panel-agent
+
+# Environment variables
+Environment=PANEL_AGENT_SOCKET=/var/run/panel/agent.sock
+Environment=PANEL_DATA_DIR=/var/panel
+
+# Restart policy
+Restart=always
+RestartSec=5s
+
+# Security hardening
+NoNewPrivileges=false
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/run/panel /var/panel/tmp /var/panel/logs
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=panel-agent
+
+# Hardening
+LimitNOFILE=65536
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

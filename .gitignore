@@ -1,0 +1,76 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+agent.exe
+api.exe
+panel-agent.exe
+panel-api.exe
+
+# Go workspace
+go.work
+go.work.sum
+
+# Dependencies
+node_modules/
+vendor/
+
+# Build outputs
+backend/cmd/agent/agent
+backend/cmd/api/api
+backend/cmd/debug/debug
+frontend/.next/
+frontend/out/
+frontend/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local env files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Build artifacts
+dist/
+build/
+
+# Test coverage
+coverage.out
+coverage.html
+*.coverprofile
+
+# Secret keys (don't commit real ones)
+*.key
+keys/
+*.pem
+*.crt
+*.csr
+
+# Uploaded files
+uploads/

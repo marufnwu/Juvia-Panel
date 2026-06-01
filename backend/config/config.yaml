@@ -1,0 +1,102 @@
+# Server Panel Configuration
+# All settings can be overridden via environment variables
+
+# Application settings
+app:
+  name: "Juvia Panel"
+  env: development  # development, staging, production
+  domain: "panel.localhost"
+
+# Server settings  
+server:
+  host: "127.0.0.1"
+  port: 2053
+  shutdown_timeout: 30s
+
+# Database settings
+database:
+  path: "/var/panel/panel.db"
+  # For production with libsql/turso:
+  # url: "file:/var/panel/panel.db?mode=rwc"
+  # auth_token: "your-turso-auth-token"
+
+# Data directories
+paths:
+  data_dir: "/var/panel"
+  apps_dir: "/var/panel/apps"
+  services_dir: "/var/panel/services"
+  backups_dir: "/var/panel/backups"
+  logs_dir: "/var/panel/logs"
+  tmp_dir: "/var/panel/tmp"
+  export_dir: "/var/panel/export"
+
+# Security
+security:
+  jwt_secret: ""  # Generated on first run if empty
+  jwt_access_ttl: 15m
+  jwt_refresh_ttl: 168h  # 7 days
+  master_key: ""  # Generated on first run for encrypting secrets
+  # 2FA is optional per user, enforce_2fa: true makes it required
+  enforce_2fa: false
+
+# SSL/TLS
+ssl:
+  provider: "letsencrypt"  # letsencrypt, selfsigned, none
+  email: ""  # Required for Let's Encrypt
+  # For Caddy automatic HTTPS:
+  # - Set domain above
+  # - Ensure ports 80 and 443 are accessible
+
+# Docker settings
+docker:
+  socket_path: "/var/run/docker.sock"
+  network_name: "panel-network"
+  registry: ""  # Default registry, e.g., "registry.example.com"
+
+# Build settings
+build:
+  nixpacks_repo: "https://github.com/railway/nixpacks"
+  builder_timeout: 10m
+  max_concurrent_builds: 3
+
+# Backup settings
+backups:
+  default_schedule: "0 2 * * *"  # Daily at 2 AM
+  default_retention: 7  # days
+  s3_bucket: ""
+  s3_region: ""
+  s3_access_key: ""
+  s3_secret_key: ""
+
+# Monitoring
+monitoring:
+  metrics_interval: 30s
+  retention_days: 30
+
+# Logging
+logging:
+  level: "info"  # debug, info, warn, error
+  format: "json"  # json, text
+  output: "stdout"  # stdout, file
+  # file: "/var/panel/logs/panel.log"
+
+# Allowed origins for CORS (comma-separated)
+# Note: Panel UI is served via Caddy reverse proxy, so CORS origins should match the panel domain
+cors:
+  allowed_origins:
+    - "https://panel.{$DOMAIN}"
+  allowed_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "PATCH"
+    - "DELETE"
+    - "OPTIONS"
+  allowed_headers:
+    - "Authorization"
+    - "Content-Type"
+    - "X-Request-ID"
+  expose_headers:
+    - "X-Request-ID"
+  max_age: 86400
+  credentials: true

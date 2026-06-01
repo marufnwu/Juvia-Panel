@@ -1,0 +1,13 @@
+// Dashboard component placeholders
+// These will be implemented in Phase 4
+
+// Components to add:
+// - ResourceCard (CPU, RAM, Disk)
+// - AppList (running apps)
+// - ServiceList (active services)
+// - ActivityFeed (recent activity)
+// - QuickActions
+// - NetworkChart
+// - UptimeDisplay
+
+export {}
