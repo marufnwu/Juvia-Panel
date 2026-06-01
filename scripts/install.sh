@@ -8,7 +8,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 REPO_URL="${PANEL_REPO_URL:-https://github.com/marufnwu/Juvia-Panel.git}"
-REPO_BRANCH="${PANEL_REPO_BRANCH:-main}"
+REPO_BRANCH="${PANEL_REPO_BRANCH:-master}"
 DATA_DIR="${PANEL_DATA_DIR:-/var/panel}"
 CONFIG_DIR="${PANEL_CONFIG_DIR:-/etc/panel}"
 INSTALL_DIR="${PANEL_INSTALL_DIR:-/opt/panel}"
