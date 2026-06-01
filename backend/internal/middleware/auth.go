@@ -12,43 +12,33 @@ import (
 )
 
 // Auth is JWT authentication middleware
-// Reads token from (in order):
-//  1. HttpOnly cookie "access_token"
-//  2. Authorization: Bearer <token> header
 func Auth(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestID := c.GetString("request_id")
 
-		var tokenString string
-
-		// Try cookie first (more secure - not accessible via JS)
-		if cookie, err := c.Cookie("access_token"); err == nil && cookie != "" {
-			tokenString = cookie
+		// Get Authorization header
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error":      "unauthorized",
+				"message":    "Authorization header required",
+				"request_id": requestID,
+			})
+			return
 		}
 
-		// Fallback to Authorization header (for API clients)
-		if tokenString == "" {
-			authHeader := c.GetHeader("Authorization")
-			if authHeader == "" {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-					"error":      "unauthorized",
-					"message":    "Authentication required",
-					"request_id": requestID,
-				})
-				return
-			}
-
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) != 2 || parts[0] != "Bearer" {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-					"error":      "invalid_token",
-					"message":    "Invalid authorization header format. Use: Bearer <token>",
-					"request_id": requestID,
-				})
-				return
-			}
-			tokenString = parts[1]
+		// Check Bearer prefix
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error":      "invalid_token",
+				"message":    "Invalid authorization header format. Use: Bearer <token>",
+				"request_id": requestID,
+			})
+			return
 		}
+
+		tokenString := parts[1]
 
 		// Parse and validate token
 		claims := &AccessClaims{}

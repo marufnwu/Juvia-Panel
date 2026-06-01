@@ -238,20 +238,10 @@ func Login(c *gin.Context) {
 		true, // httpOnly
 	)
 
-	// Set access token as httpOnly cookie (not accessible via JS - prevents XSS token theft)
-	c.SetCookie(
-		"access_token",
-		accessToken,
-		int(cfg.JWTExpiry.Seconds()),
-		"/",
-		"",
-		cfg.Env == "production",
-		true, // httpOnly
-	)
-
 	c.JSON(http.StatusOK, LoginResponse{
-		TokenType: "Bearer",
-		ExpiresIn:  int(cfg.JWTExpiry.Seconds()),
+		AccessToken: accessToken,
+		TokenType:   "Bearer",
+		ExpiresIn:    int(cfg.JWTExpiry.Seconds()),
 		User: &UserInfo{
 			ID:       user.ID,
 			Email:    user.Email,
@@ -345,20 +335,10 @@ func Refresh(c *gin.Context) {
 		return
 	}
 
-	// Set access token as httpOnly cookie
-	c.SetCookie(
-		"access_token",
-		accessToken,
-		int(cfg.JWTExpiry.Seconds()),
-		"/",
-		"",
-		cfg.Env == "production",
-		true, // httpOnly
-	)
-
 	c.JSON(http.StatusOK, LoginResponse{
-		TokenType: "Bearer",
-		ExpiresIn:  int(cfg.JWTExpiry.Seconds()),
+		AccessToken: accessToken,
+		TokenType:   "Bearer",
+		ExpiresIn:   int(cfg.JWTExpiry.Seconds()),
 	})
 }
 
@@ -389,17 +369,6 @@ func Logout(c *gin.Context) {
 	// Clear refresh token cookie
 	c.SetCookie(
 		"refresh_token",
-		"",
-		-1,
-		"/",
-		"",
-		cfg.Env == "production",
-		true,
-	)
-
-	// Clear access token cookie
-	c.SetCookie(
-		"access_token",
 		"",
 		-1,
 		"/",

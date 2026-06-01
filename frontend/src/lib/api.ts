@@ -43,8 +43,10 @@ async function request<T>(
     ...(fetchOptions.headers as Record<string, string> || {}),
   }
 
-  // Auth is handled via httpOnly cookies (credentials: 'include')
-  // No need to send Bearer token in header - browser sends cookies automatically
+  const token = useAuthStore.getState().accessToken
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
 
   const response = await fetch(url, {
     ...fetchOptions,
@@ -71,8 +73,6 @@ async function request<T>(
 
 async function refreshToken(): Promise<boolean> {
   try {
-    // Refresh endpoint reads refresh_token from httpOnly cookie
-    // New access_token is set as httpOnly cookie by the server
     const response = await fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
@@ -81,6 +81,8 @@ async function refreshToken(): Promise<boolean> {
       useAuthStore.getState().clearAuth()
       return false
     }
+    const data = await response.json()
+    useAuthStore.getState().setAuth(data.access_token, useAuthStore.getState().user)
     return true
   } catch {
     useAuthStore.getState().clearAuth()
