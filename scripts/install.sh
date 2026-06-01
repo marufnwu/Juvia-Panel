@@ -25,7 +25,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
 
 CURRENT_STEP=0
-TOTAL_STEPS=10
+TOTAL_STEPS=11
 
 step() {
     CURRENT_STEP=$((CURRENT_STEP + 1))
@@ -337,9 +337,19 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     npm install --legacy-peer-deps
     npm run build
 
-    if [[ -d "$TEMP_CLONE_DIR/frontend/out" ]]; then
+    # Install UI (standalone mode)
+    if [[ -f "$TEMP_CLONE_DIR/frontend/.next/standalone/server.js" ]]; then
+        rm -rf "$INSTALL_DIR/ui"
+        mkdir -p "$INSTALL_DIR/ui"
+        cp -r "$TEMP_CLONE_DIR/frontend/.next/standalone/"* "$INSTALL_DIR/ui/"
+        cp -r "$TEMP_CLONE_DIR/frontend/.next" "$INSTALL_DIR/ui/"
+        cp "$TEMP_CLONE_DIR/frontend/package.json" "$INSTALL_DIR/ui/"
+        chown -R juvia:juvia "$INSTALL_DIR/ui"
+        log_info "UI (standalone) installed to $INSTALL_DIR/ui"
+    elif [[ -d "$TEMP_CLONE_DIR/frontend/out" ]]; then
         rm -rf "$INSTALL_DIR/ui/out"
         cp -r "$TEMP_CLONE_DIR/frontend/out" "$INSTALL_DIR/ui/"
+        log_info "UI (static) installed to $INSTALL_DIR/ui"
     fi
 
     # Copy migrations
@@ -652,7 +662,7 @@ cat > "$DATA_DIR/.juvia-manifest.json" <<EOF
     "$DATA_DIR",
     "$CONFIG_DIR",
     "$INSTALL_DIR",
-    "/var/run/juvia"
+    "/var/run/panel"
   ],
   "files_installed": [
     {"path": "/usr/local/bin/juvia-api", "size": $(stat -c%s /usr/local/bin/juvia-api 2>/dev/null || echo "0")},
@@ -662,7 +672,8 @@ cat > "$DATA_DIR/.juvia-manifest.json" <<EOF
   "services_created": [
     "juvia-agent.service",
     "juvia-api.service",
-    "juvia-caddy.service"
+    "juvia-caddy.service",
+    "juvia-ui.service"
   ],
   "firewall_rules_added": $FIREWALL_RULES_ADDED,
   "packages_installed": $(printf '%s\n' "${PACKAGES_INSTALLED[@]}" | jq -R . | jq -s .)

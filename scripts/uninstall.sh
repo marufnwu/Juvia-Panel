@@ -133,6 +133,7 @@ fi
 
 log_step "Step 2: Stopping services"
 systemctl stop juvia-caddy 2>/dev/null || true
+systemctl stop juvia-ui 2>/dev/null || true
 systemctl stop juvia-api 2>/dev/null || true
 systemctl stop juvia-agent 2>/dev/null || true
 log_info "All Juvia Panel services stopped"
@@ -159,10 +160,12 @@ log_step "Step 4: Removing systemd services"
 systemctl disable juvia-agent 2>/dev/null || true
 systemctl disable juvia-api 2>/dev/null || true
 systemctl disable juvia-caddy 2>/dev/null || true
+systemctl disable juvia-ui 2>/dev/null || true
 
 rm -f /etc/systemd/system/juvia-agent.service
 rm -f /etc/systemd/system/juvia-api.service
 rm -f /etc/systemd/system/juvia-caddy.service
+rm -f /etc/systemd/system/juvia-ui.service
 
 systemctl daemon-reload
 systemctl reset-failed 2>/dev/null || true
@@ -176,7 +179,7 @@ rm -f /usr/local/bin/juvia-cli
 rm -rf "$INSTALL_DIR/bin" 2>/dev/null || true
 rm -rf "$INSTALL_DIR/ui" 2>/dev/null || true
 
-rm -rf /var/run/juvia
+rm -rf /var/run/panel
 
 if [[ "$PURGE" == "true" ]]; then
     rm -rf "$CONFIG_DIR"

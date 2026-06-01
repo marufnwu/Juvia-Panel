@@ -23,7 +23,7 @@ INSTALL_DIR="${PANEL_INSTALL_DIR:-/opt/panel}"
 REPO_URL="${PANEL_REPO_URL:-https://github.com/marufnwu/Juvia-Panel.git}"
 REPO_BRANCH="${PANEL_REPO_BRANCH:-master}"
 
-CURRENT_VERSION_FILE="/var/run/juvia/.version"
+CURRENT_VERSION_FILE="/var/run/panel/.version"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -68,8 +68,18 @@ rollback_update() {
         log_info "Restored configuration backup"
     fi
 
+    # Restore UI if backup exists
+    if [[ -d "$INSTALL_DIR/ui.old" ]]; then
+        rm -rf "$INSTALL_DIR/ui"
+        mv "$INSTALL_DIR/ui.old" "$INSTALL_DIR/ui"
+        log_info "Restored previous UI"
+    fi
+
     systemctl restart juvia-agent 2>/dev/null || true
     systemctl restart juvia-api
+    if systemctl is-enabled juvia-ui &>/dev/null; then
+        systemctl restart juvia-ui 2>/dev/null || true
+    fi
 
     sleep 5
     if curl -sf --max-time 10 http://localhost:9090/health > /dev/null 2>&1; then
@@ -229,7 +239,10 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     npm ci --legacy-peer-deps --silent 2>/dev/null || npm install --legacy-peer-deps 2>/dev/null || true
     npm run build 2>/dev/null || log_warn "UI build failed, preserving existing UI"
 
-    if [[ -d "$TEMP_CLONE/frontend/out" ]]; then
+    if [[ -f "$TEMP_CLONE/frontend/.next/standalone/server.js" ]]; then
+        cd "$TEMP_CLONE/frontend/.next/standalone"
+        tar -czf "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" .
+    elif [[ -d "$TEMP_CLONE/frontend/out" ]]; then
         cd "$TEMP_CLONE/frontend"
         tar -czf "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" out/
     fi
@@ -305,6 +318,9 @@ log_step "Step 5: Starting services"
 systemctl start juvia-agent 2>/dev/null || true
 sleep 2
 systemctl start juvia-api
+if systemctl is-enabled juvia-ui &>/dev/null; then
+    systemctl start juvia-ui 2>/dev/null || true
+fi
 log_info "Services started"
 
 log_step "Step 6: Verifying update"
