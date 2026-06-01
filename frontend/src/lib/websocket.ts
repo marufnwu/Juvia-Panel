@@ -57,7 +57,7 @@ function getDefaultWebSocketUrl(): string {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     return `${protocol}//${window.location.host}/api/v1/stream`
   }
-  return process.env.NEXT_PUBLIC_WS_URL || 'ws://127.0.0.1:9090/api/v1/stream'
+  return process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3000/api/v1/stream'
 }
 
 class PanelWebSocket {
