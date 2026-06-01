@@ -7,7 +7,7 @@ import { Server, Loader2, Eye, EyeOff, CheckCircle, ArrowRight, ArrowLeft } from
 import { useAuthStore } from '@/stores'
 import { useToastStore } from '@/stores'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api/v1'
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
 
 type Step = 'account' | 'complete'
 
