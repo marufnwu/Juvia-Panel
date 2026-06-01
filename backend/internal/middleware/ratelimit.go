@@ -78,7 +78,7 @@ type AuthRateLimiter struct {
 
 func NewAuthRateLimiter() *AuthRateLimiter {
 	return &AuthRateLimiter{
-		RateLimiter: NewRateLimiter(5, 1*time.Minute),
+		RateLimiter: NewRateLimiter(10, 1*time.Minute),
 	}
 }
 
