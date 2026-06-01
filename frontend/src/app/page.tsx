@@ -246,9 +246,9 @@ export default function DashboardPage() {
     setMetricsHistory(prev => {
       const newPoint: MetricsPoint = {
         timestamp: Date.now(),
-        cpu: data.cpu_percent,
-        ram: data.ram_total > 0 ? (data.ram_used / data.ram_total) * 100 : 0,
-        disk: data.disk_total > 0 ? (data.disk_used / data.disk_total) * 100 : 0,
+        cpu: data.cpu.current_percent,
+        ram: data.memory.percent,
+        disk: data.disk.percent,
       }
       const updated = [...prev, newPoint].slice(-20)
       return updated
@@ -295,9 +295,9 @@ export default function DashboardPage() {
       setMetricsHistory(prev => {
         const newPoint: MetricsPoint = {
           timestamp: Date.now(),
-          cpu: metrics.cpu_percent,
-          ram: metrics.ram_total > 0 ? (metrics.ram_used / metrics.ram_total) * 100 : 0,
-          disk: metrics.disk_total > 0 ? (metrics.disk_used / metrics.disk_total) * 100 : 0,
+          cpu: metrics.cpu.current_percent,
+          ram: metrics.memory.percent,
+          disk: metrics.disk.percent,
         }
         const updated = [...prev, newPoint].slice(-20)
         return updated
@@ -311,27 +311,22 @@ export default function DashboardPage() {
   const activity = activityData?.events || []
 
   const metricsDisplay = metrics || {
-    cpu_percent: 0,
-    cpu_cores: 0,
-    ram_used: 0,
-    ram_total: 0,
-    disk_used: 0,
-    disk_total: 0,
-    load_avg: [0, 0, 0],
-    uptime: 0,
-    network_in: 0,
-    network_out: 0,
+    cpu: { current_percent: 0, per_core: [], history: [] },
+    memory: { current_mb: 0, total_mb: 0, percent: 0, history: [] },
+    disk: { percent: 0, total_gb: 0, used_gb: 0, io_read_mbps: 0, io_write_mbps: 0 },
+    load: { '1min': 0, '5min': 0, '15min': 0 },
+    network: { inbound_mbps: 0, outbound_mbps: 0, connections_active: 0 },
   }
 
   const cpuData = metricsHistory.length > 0
     ? metricsHistory.map(p => ({ value: p.cpu }))
-    : generateSparklineData(metricsDisplay.cpu_percent, 20)
+    : generateSparklineData(metricsDisplay.cpu.current_percent, 20)
   const ramData = metricsHistory.length > 0
     ? metricsHistory.map(p => ({ value: p.ram }))
-    : generateSparklineData((metricsDisplay.ram_total > 0 ? (metricsDisplay.ram_used / metricsDisplay.ram_total) * 100 : 0), 15)
+    : generateSparklineData(metricsDisplay.memory.percent, 15)
   const diskData = metricsHistory.length > 0
     ? metricsHistory.map(p => ({ value: p.disk }))
-    : generateSparklineData((metricsDisplay.disk_total > 0 ? (metricsDisplay.disk_used / metricsDisplay.disk_total) * 100 : 0), 10)
+    : generateSparklineData(metricsDisplay.disk.percent, 10)
 
   const runningApps = apps.filter(a => a.status === 'running').slice(0, 6)
   const activeServices = services.filter(s => s.status === 'running').slice(0, 4)
@@ -396,35 +391,35 @@ export default function DashboardPage() {
           <>
             <ResourceCard
               title="CPU Usage"
-              value={`${metricsDisplay.cpu_percent}%`}
-              subValue={`${metricsDisplay.cpu_cores} cores`}
+              value={`${metricsDisplay.cpu.current_percent.toFixed(1)}%`}
+              subValue={`${metricsDisplay.cpu.per_core.length} cores`}
               icon={Cpu}
-              trend={metricsDisplay.cpu_percent > 80 ? 'up' : undefined}
+              trend={metricsDisplay.cpu.current_percent > 80 ? 'up' : undefined}
               sparklineData={cpuData}
-              color={metricsDisplay.cpu_percent > 80 ? 'danger' : 'primary'}
+              color={metricsDisplay.cpu.current_percent > 80 ? 'danger' : 'primary'}
             />
             <ResourceCard
               title="RAM Usage"
-              value={formatBytes(metricsDisplay.ram_used * 1024 * 1024)}
-              subValue={`of ${formatBytes(metricsDisplay.ram_total * 1024 * 1024)}`}
+              value={formatBytes(metricsDisplay.memory.current_mb * 1024 * 1024)}
+              subValue={`of ${formatBytes(metricsDisplay.memory.total_mb * 1024 * 1024)}`}
               icon={MemoryStick}
               sparklineData={ramData}
               color="primary"
             />
             <ResourceCard
               title="Disk Usage"
-              value={`${metricsDisplay.disk_used} GB`}
-              subValue={`of ${metricsDisplay.disk_total} GB`}
+              value={`${metricsDisplay.disk.used_gb} GB`}
+              subValue={`of ${metricsDisplay.disk.total_gb} GB`}
               icon={HardDrive}
               sparklineData={diskData}
               color="warning"
             />
             <ResourceCard
               title="Load Average"
-              value={`${metricsDisplay.load_avg[0].toFixed(2)}`}
-              subValue={`${metricsDisplay.load_avg[1].toFixed(2)} / ${metricsDisplay.load_avg[2].toFixed(2)}`}
+              value={`${metricsDisplay.load['1min'].toFixed(2)}`}
+              subValue={`${metricsDisplay.load['5min'].toFixed(2)} / ${metricsDisplay.load['15min'].toFixed(2)}`}
               icon={Activity}
-              color={metricsDisplay.load_avg[0] > 4 ? 'danger' : 'success'}
+              color={metricsDisplay.load['1min'] > 4 ? 'danger' : 'success'}
             />
           </>
         )}

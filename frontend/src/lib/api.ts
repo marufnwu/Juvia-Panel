@@ -459,16 +459,34 @@ export interface Backup {
 }
 
 export interface ServerMetrics {
-  cpu_percent: number
-  cpu_cores: number
-  ram_used: number
-  ram_total: number
-  disk_used: number
-  disk_total: number
-  load_avg: [number, number, number]
-  uptime: number
-  network_in?: number
-  network_out?: number
+  cpu: {
+    current_percent: number
+    per_core: number[]
+    history: { timestamp: string; value: number }[]
+  }
+  memory: {
+    current_mb: number
+    total_mb: number
+    percent: number
+    history: { timestamp: string; value: number }[]
+  }
+  disk: {
+    percent: number
+    total_gb: number
+    used_gb: number
+    io_read_mbps: number
+    io_write_mbps: number
+  }
+  load: {
+    '1min': number
+    '5min': number
+    '15min': number
+  }
+  network: {
+    inbound_mbps: number
+    outbound_mbps: number
+    connections_active: number
+  }
 }
 
 export interface ProcessInfo {
