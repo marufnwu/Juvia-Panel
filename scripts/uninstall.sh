@@ -21,6 +21,7 @@ log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
 DATA_DIR="${PANEL_DATA_DIR:-/var/panel}"
 CONFIG_DIR="${PANEL_CONFIG_DIR:-/etc/panel}"
 INSTALL_DIR="${PANEL_INSTALL_DIR:-/opt/panel}"
+EXPORT_DIR=""
 
 MANIFEST="$DATA_DIR/.juvia-manifest.json"
 
@@ -239,6 +240,6 @@ else
 fi
 log_info "========================================="
 
-if [[ -d "$EXPORT_DIR" ]]; then
+if [[ -n "${EXPORT_DIR:-}" && -d "$EXPORT_DIR" ]]; then
     log_info "Exported apps are at: $EXPORT_DIR"
 fi
