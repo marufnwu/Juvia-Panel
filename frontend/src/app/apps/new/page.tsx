@@ -142,13 +142,23 @@ export default function CreateAppPage() {
   }
 
   const handleCreate = () => {
+    const envRecord: Record<string, string> = {}
+    for (const v of config.envVars) {
+      envRecord[v.key] = v.value
+    }
+
     const data: CreateAppInput = {
       name: config.appName.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
-      build_strategy: config.buildStrategy,
-      branch: config.branch,
-      git_url: config.gitUrl,
-      domain: config.domain || undefined,
-      env_vars: config.envVars,
+      source: {
+        type: config.sourceType === 'docker' ? 'docker_compose' : (config.sourceType || 'git'),
+        repo_url: config.gitUrl || undefined,
+        branch: config.branch || undefined,
+      },
+      build: {
+        strategy: config.buildStrategy,
+      },
+      domain: config.domain ? { primary: config.domain } : undefined,
+      environment: Object.keys(envRecord).length > 0 ? envRecord : undefined,
     }
     createAppMutation.mutate(data)
   }

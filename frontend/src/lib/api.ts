@@ -394,11 +394,22 @@ export interface AppsResponse {
 
 export interface CreateAppInput {
   name: string
-  git_url?: string
-  branch?: string
-  domain?: string
-  build_strategy?: 'auto' | 'nixpacks' | 'dockerfile' | 'static'
-  env_vars?: Array<{ key: string; value: string; secret?: boolean }>
+  source: {
+    type: 'git' | 'upload' | 'docker_compose'
+    repo_url?: string
+    branch?: string
+    auto_deploy?: boolean
+  }
+  build?: {
+    strategy?: 'auto' | 'nixpacks' | 'dockerfile' | 'static'
+    build_command?: string
+    start_command?: string
+  }
+  domain?: {
+    primary?: string
+    force_https?: boolean
+  }
+  environment?: Record<string, string>
 }
 
 export interface EnvVariable {
