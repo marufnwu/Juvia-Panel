@@ -65,31 +65,71 @@ sudo bash scripts/install.sh
 Or install directly from git:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/marufnwu/Juvia-Panel/main/scripts/install.sh | sudo bash -s -- --repo-branch main
+curl -sSL https://raw.githubusercontent.com/marufnwu/Juvia-Panel/master/scripts/install.sh | sudo bash
 ```
 
-You'll be prompted for:
-- **Domain** — the public domain for the panel (e.g. `panel.example.com`)
-- **Email** — for TLS certificate notifications
+### Install Options
 
-The script will:
-1. Check your system (OS version, RAM, disk, kernel)
-2. Install Docker CE and Caddy 2
-3. Create the `juvia` user and directory structure
-4. Clone the repository and build the binaries from source
-5. Generate security keys and configuration
-6. Initialize the SQLite database and run migrations
-7. Install and enable systemd services (agent, API, reverse proxy)
-8. Configure the firewall (SSH, HTTP, HTTPS allowed)
-9. Start everything and verify with a health check
+```bash
+sudo bash scripts/install.sh \
+  --domain panel.example.com \
+  --email admin@example.com \
+  --data-dir /var/panel \
+  --config-dir /etc/panel \
+  --install-dir /opt/panel \
+  --skip-docker \
+  --skip-caddy \
+  --skip-firewall \
+  --debug
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--domain` | _(empty)_ | Public domain for the panel |
+| `--email` | _(empty)_ | Email for TLS certificate notifications |
+| `--data-dir` | `/var/panel` | App data, databases, backups, logs |
+| `--config-dir` | `/etc/panel` | Configuration files and secrets |
+| `--install-dir` | `/opt/panel` | Binaries and UI static files |
+| `--skip-docker` | `false` | Skip Docker CE installation |
+| `--skip-caddy` | `false` | Skip Caddy 2 installation |
+| `--skip-firewall` | `false` | Skip UFW firewall configuration |
+| `--debug` | `false` | Verbose output for troubleshooting |
+
+### What the installer does
+
+1. Checks your system (OS version, RAM, disk, kernel)
+2. Installs Docker CE and Caddy 2
+3. Creates the `juvia` user and directory structure
+4. Downloads pre-built binaries from GitHub Releases (falls back to building from source)
+5. Generates security keys and configuration
+6. Initializes the SQLite database and runs migrations
+7. Installs and enables systemd services (`juvia-agent`, `juvia-api`, `juvia-ui`, `juvia-caddy`)
+8. Configures the firewall (SSH, HTTP, HTTPS, port 2053 allowed)
+9. Starts everything and verifies with a health check
 
 At the end you'll see the URL where Juvia Panel is running:
 ```
 Juvia Panel is running at:
-  https://panel.example.com
+  http://YOUR_SERVER_IP:2053
 ```
 
 Visit that URL and create your first admin account.
+
+### Systemd Services
+
+| Service | Description | Port |
+|---------|-------------|------|
+| `juvia-agent` | Docker container management agent | Unix socket |
+| `juvia-api` | REST API server | 9090 |
+| `juvia-ui` | Next.js web dashboard | 3000 |
+| `juvia-caddy` | Reverse proxy with automatic TLS | 80, 443, 2053 |
+
+Manage services with:
+```bash
+sudo systemctl status juvia-api juvia-ui juvia-caddy
+sudo systemctl restart juvia-api
+sudo journalctl -u juvia-api -f
+```
 
 ---
 
@@ -97,19 +137,44 @@ Visit that URL and create your first admin account.
 
 ```bash
 # Check for a new version
-sudo panel-update check
+sudo bash scripts/update.sh check
 
 # Update to the latest version
-sudo panel-update
+sudo bash scripts/update.sh
 
 # Update to a specific version
-sudo panel-update --version v1.2.0
+sudo bash scripts/update.sh --version v1.2.0
 
-# Update with no automatic rollback on failure
-sudo panel-update --no-rollback
+# Disable automatic rollback on failure
+sudo bash scripts/update.sh --no-rollback
+
+# Debug mode
+sudo bash scripts/update.sh --debug
 ```
 
-Updates download the new binary, run any database migrations, restart the service, and run smoke tests. If anything fails, the previous version is restored automatically.
+Or run directly from git:
+```bash
+curl -sSL https://raw.githubusercontent.com/marufnwu/Juvia-Panel/master/scripts/update.sh | sudo bash
+```
+
+### What the updater does
+
+1. Backs up the database and configuration
+2. Downloads the new release bundle from GitHub Releases
+3. Falls back to building from source if no release bundle is available
+4. Stops services
+5. Runs pending database migrations
+6. Replaces binaries and UI files atomically
+7. Restarts all services (`juvia-agent`, `juvia-api`, `juvia-ui`, `juvia-caddy`)
+8. Runs a health check — if it fails, automatically rolls back to the previous version
+9. Cleans up old backups (older than 7 days)
+
+### Rollback
+
+If an update fails and automatic rollback is disabled:
+```bash
+sudo bash scripts/update.sh rollback
+```
 
 ---
 
@@ -117,16 +182,45 @@ Updates download the new binary, run any database migrations, restart the servic
 
 ```bash
 # Standard uninstall (keeps app data and volumes)
-sudo panel-uninstall
+sudo bash scripts/uninstall.sh
 
 # Full purge including all app data and volumes
-sudo panel-uninstall --purge
+sudo bash scripts/uninstall.sh --purge
 
 # Export docker-compose.yml and .env files before removing
-sudo panel-uninstall --export
+sudo bash scripts/uninstall.sh --export-only
+
+# Keep the juvia system user
+sudo bash scripts/uninstall.sh --keep-user
+
+# Keep app data even with purge
+sudo bash scripts/uninstall.sh --purge --keep-data
+
+# Debug mode
+sudo bash scripts/uninstall.sh --debug
 ```
 
-Uninstall reads the installation manifest to cleanly remove everything Panel created — services, users, directories, and firewall rules.
+### What the uninstaller does
+
+1. Exports all apps as `docker-compose.yml` with volume data (unless `--purge`)
+2. Stops all Juvia Panel services
+3. Removes Docker containers and images created by the panel
+4. Removes systemd services (`juvia-agent`, `juvia-api`, `juvia-ui`, `juvia-caddy`)
+5. Removes binaries from `/usr/local/bin/`
+6. Removes installation directory (`/opt/panel`)
+7. Removes firewall rules
+8. Removes the `juvia` system user (unless `--keep-user`)
+9. With `--purge`: removes config (`/etc/panel`) and data (`/var/panel`)
+
+### Uninstall Flags
+
+| Flag | Description |
+|------|-------------|
+| `--export-only` | Export apps and stop services, but don't remove anything |
+| `--purge` | Remove everything including config and data |
+| `--keep-data` | Keep `/var/panel` even with `--purge` |
+| `--keep-user` | Don't remove the `juvia` system user |
+| `--debug` | Verbose output |
 
 ---
 
@@ -274,7 +368,7 @@ Check the **Logs** tab on the app detail page. Common causes:
 
 ### Need help?
 1. Check the activity log at **Activity** for error details
-2. View logs: `journalctl -u panel-api -u panel-agent`
+2. View logs: `journalctl -u juvia-api -u juvia-agent`
 3. Re-run the install script with `--debug` for verbose output
 
 ---
