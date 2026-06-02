@@ -1,4 +1,4 @@
-# Server Panel - GitHub Actions CI/CD
+# Juvia Panel - CI/CD
 
 This repository uses GitHub Actions for automated builds and releases.
 
@@ -8,55 +8,106 @@ This repository uses GitHub Actions for automated builds and releases.
 
 Triggered when a version tag is pushed (`v*`).
 
-**Builds:**
-- `panel-api` - Go API server binary for Linux amd64
-- `panel-agent` - Go agent daemon binary for Linux amd64
-- `panel-ui.tar.gz` - Static Next.js frontend build
-- `panel-migrations.tar.gz` - Database migration SQL files
+**Matrix builds:** `amd64` and `arm64`
 
-**Release Artifacts:**
-- `panel-api-linux-amd64` - API server binary
-- `panel-agent-linux-amd64` - Agent daemon binary  
-- `panel-ui.tar.gz` - Frontend static files
-- `panel-migrations.tar.gz` - SQL migrations
-- `checksums.txt` - SHA-256 checksums for all files
+**Per-architecture artifacts:**
+
+| Artifact | Description |
+|----------|-------------|
+| `juvia-api` | Go API server binary |
+| `juvia-agent` | Go agent daemon binary |
+| `juvia-cli` | Go CLI debug binary |
+| `juvia-ui.tar.gz` | Next.js standalone frontend |
+| `juvia-release-{arch}.tar.gz` | Bundle containing migrations, scripts, and Caddyfile |
+| `checksums-{arch}.txt` | SHA-256 checksums |
+
+### Test Workflow
+
+Runs on every push:
+- `go test ./...` for backend
+- `npm run lint` for frontend
+
+---
 
 ## How to Release
 
-1. Update version in code (if needed)
+1. Commit and push all changes to `master`
 2. Create and push a version tag:
 
 ```bash
-# Example: Creating release v1.0.0
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.1.0
+git push origin v1.1.0
 ```
 
 The workflow will:
-1. Build all binaries with Go 1.22
-2. Build frontend with Node 20
-3. Package migrations
-4. Create a GitHub Release with all artifacts
+1. Build Go binaries for amd64 and arm64 (CGO_ENABLED=0)
+2. Build Next.js frontend with Node 20
+3. Package migrations, scripts, and Caddyfile into a release bundle
+4. Generate SHA-256 checksums
+5. Create a GitHub Release with all artifacts
 
-## Manual Testing
+---
 
-To trigger a build without release, push to main branch:
+## Install / Update from Release
+
+Users install or update by running:
 
 ```bash
-git push origin main
+# Install
+curl -sSL https://raw.githubusercontent.com/marufnwu/Juvia-Panel/master/scripts/install.sh | sudo bash
+
+# Update
+curl -sSL https://raw.githubusercontent.com/marufnwu/Juvia-Panel/master/scripts/update.sh | sudo bash
 ```
 
-This will run tests but not create a release.
+The scripts download `juvia-release-{arch}.tar.gz` from the latest GitHub Release, extract binaries and UI, and deploy. If no release bundle is found, they fall back to building from source.
+
+---
 
 ## Local Development Build
 
 ```bash
 # Backend
 cd backend
-go build -o panel-api ./cmd/api
-go build -o panel-agent ./cmd/agent
+CGO_ENABLED=0 go build -ldflags="-s -w" -o juvia-api ./cmd/api/
+CGO_ENABLED=0 go build -ldflags="-s -w" -o juvia-agent ./cmd/agent/
+CGO_ENABLED=0 go build -ldflags="-s -w" -o juvia-cli ./cmd/debug/
 
 # Frontend
 cd frontend
 npm install
 npm run build
+```
+
+The frontend standalone build is at `frontend/.next/standalone/`.
+
+---
+
+## Directory Structure
+
+```
+/etc/panel/              # Configuration
+├── config.yml           # Main config
+├── env                  # Environment secrets
+├── jwt-secret           # JWT signing key
+├── encryption-key       # AES-256 encryption key
+├── keys/master          # Master encryption key
+├── caddy/Caddyfile      # Caddy reverse proxy config
+└── migrations/          # SQL migration files
+
+/var/panel/              # Data
+├── panel.db             # SQLite database
+├── apps/                # App source and builds
+├── backups/             # Service backups
+├── logs/                # Application logs
+└── volumes/             # Docker volumes
+
+/opt/panel/              # Installation
+├── bin/                 # (reserved)
+└── ui/                  # Next.js standalone build
+
+/usr/local/bin/          # Binaries
+├── juvia-api
+├── juvia-agent
+└── juvia-cli
+```
