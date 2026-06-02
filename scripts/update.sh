@@ -80,6 +80,9 @@ rollback_update() {
     if systemctl is-enabled juvia-ui &>/dev/null; then
         systemctl restart juvia-ui 2>/dev/null || true
     fi
+    if systemctl is-enabled juvia-caddy &>/dev/null; then
+        systemctl restart juvia-caddy 2>/dev/null || true
+    fi
 
     sleep 5
     if curl -sf --max-time 10 http://localhost:9090/health > /dev/null 2>&1; then
@@ -263,6 +266,7 @@ log_info "Download complete (version: $NEW_VERSION)"
 log_step "Step 3: Stopping services"
 systemctl stop juvia-agent 2>/dev/null || true
 systemctl stop juvia-api 2>/dev/null || true
+systemctl stop juvia-caddy 2>/dev/null || true
 log_info "Services stopped"
 
 log_step "Step 3b: Running database migrations"
@@ -320,6 +324,9 @@ sleep 2
 systemctl start juvia-api
 if systemctl is-enabled juvia-ui &>/dev/null; then
     systemctl start juvia-ui 2>/dev/null || true
+fi
+if systemctl is-enabled juvia-caddy &>/dev/null; then
+    systemctl start juvia-caddy 2>/dev/null || true
 fi
 log_info "Services started"
 
