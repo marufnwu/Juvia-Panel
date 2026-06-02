@@ -20,8 +20,26 @@ func CORS(cfg *config.Config) gin.HandlerFunc {
 			host = c.Request.Host
 		}
 
-		// Same-host check: compare IP/hostname from Origin with the actual server host
-		if origin != "" {
+		// Check allowed origins first
+		if cfg.AllowedOrigins != "" {
+			allowedList := strings.Split(cfg.AllowedOrigins, ",")
+			for _, allowedOrigin := range allowedList {
+				if strings.TrimSpace(allowedOrigin) == origin {
+					c.Header("Access-Control-Allow-Origin", origin)
+					allowed = true
+					break
+				}
+			}
+		}
+
+		// Allow if origin contains PanelDomain
+		if !allowed && cfg.PanelDomain != "" && strings.Contains(origin, cfg.PanelDomain) {
+			c.Header("Access-Control-Allow-Origin", origin)
+			allowed = true
+		}
+
+		// Allow if origin matches the actual host (handles same IP access)
+		if !allowed && origin != "" {
 			originHost := strings.Split(origin, "://")[1]
 			if strings.Contains(originHost, ":") {
 				originHost = strings.Split(originHost, ":")[0]
@@ -36,24 +54,6 @@ func CORS(cfg *config.Config) gin.HandlerFunc {
 		if cfg.Env == "development" {
 			c.Header("Access-Control-Allow-Origin", origin)
 			allowed = true
-		} else if origin != "" && !allowed {
-			// In production, check allowed origins
-			if cfg.AllowedOrigins != "" {
-				allowedList := strings.Split(cfg.AllowedOrigins, ",")
-				for _, allowedOrigin := range allowedList {
-					if strings.TrimSpace(allowedOrigin) == origin {
-						c.Header("Access-Control-Allow-Origin", origin)
-						allowed = true
-						break
-					}
-				}
-			}
-
-			// Allow if origin contains PanelDomain
-			if !allowed && cfg.PanelDomain != "" && strings.Contains(origin, cfg.PanelDomain) {
-				c.Header("Access-Control-Allow-Origin", origin)
-				allowed = true
-			}
 		}
 
 		// Block cross-origin requests in production if not allowed
