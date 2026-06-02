@@ -11,10 +11,16 @@ import (
 func CORS(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
-		host := c.Request.Host
 		allowed := false
 
-		// Same-host check: compare IP/hostname from Origin with Host header
+		// Get the actual host - check X-Forwarded-Host first (set by reverse proxy)
+		// then fall back to Host header
+		host := c.Request.Header.Get("X-Forwarded-Host")
+		if host == "" {
+			host = c.Request.Host
+		}
+
+		// Same-host check: compare IP/hostname from Origin with the actual server host
 		if origin != "" {
 			originHost := strings.Split(origin, "://")[1]
 			if strings.Contains(originHost, ":") {
