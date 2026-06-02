@@ -24,14 +24,14 @@
     # Next.js static files (_next/static, etc.)
     handle /_next/* {
         file_server {
-            root /opt/panel/ui/out
+            root /opt/panel/ui
         }
     }
 
     # Static assets
     handle /static/* {
         file_server {
-            root /opt/panel/ui/out
+            root /opt/panel/ui
         }
     }
 
@@ -49,7 +49,7 @@
     handle {
         try_files {path} {path}/index.html /index.html
         file_server {
-            root /opt/panel/ui/out
+            root /opt/panel/ui
         }
     }
 }
