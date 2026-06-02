@@ -7,13 +7,20 @@ import (
 	"syscall"
 
 	"panel-api/internal/agent"
+	"panel-api/internal/config"
 )
 
 func main() {
-	// Determine socket path
-	socketPath := os.Getenv("PANEL_AGENT_SOCKET")
+	// Load configuration (supports --config and --version flags)
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Determine socket path from config
+	socketPath := cfg.AgentSocket
 	if socketPath == "" {
-		socketPath = "/var/run/panel/agent.sock"
+		socketPath = config.DefaultAgentSocket
 	}
 
 	// Create agent
@@ -24,7 +31,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	// Start agent
-	log.Printf("Starting agent daemon on %s", socketPath)
+	log.Printf("Starting agent daemon (version %s) on %s", cfg.Version, socketPath)
 	if err := a.Start(); err != nil {
 		log.Fatalf("Failed to start agent: %v", err)
 	}

@@ -17,20 +17,16 @@ function WebSocketConnectionListener({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     if (isConnected) {
-      // Clear any pending disconnect timer
       if (disconnectTimer) {
         clearTimeout(disconnectTimer)
         setDisconnectTimer(null)
       }
-      // Hide connection lost modal if it was shown
       setShowConnectionLost(false)
     } else {
-      // Start a 10-second timer before showing connection lost
-      // Only show if not already shown
       if (!showConnectionLost) {
         const timer = setTimeout(() => {
           setShowConnectionLost(true)
-        }, 10000) // 10 seconds
+        }, 10000)
         setDisconnectTimer(timer)
       }
     }
@@ -62,7 +58,7 @@ function WebSocketConnectionListener({ children }: { children: React.ReactNode }
 }
 
 // Routes that require authentication
-const protectedRoutes = ['/', '/apps', '/apps/new', '/server', '/settings', '/settings/backup', '/team', '/backups', '/cron', '/files', '/terminal', '/activity']
+const protectedRoutes = ['/', '/apps', '/apps/new', '/apps', '/server', '/settings', '/settings/backup', '/team', '/backups', '/cron', '/files', '/terminal', '/activity']
 
 // Routes that should redirect to dashboard if authenticated
 const authRoutes = ['/login', '/setup']
@@ -75,7 +71,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function checkAuth() {
-      // Wait for usersExist to be determined
       if (usersExist === null) {
         await checkUsersExist()
       }
@@ -90,19 +85,16 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route))
     const isAuthRoute = authRoutes.includes(pathname)
 
-    // If no users exist, redirect to setup (but not if already on setup)
     if (usersExist === false && !isAuthRoute && pathname !== '/setup') {
       router.push('/setup')
       return
     }
 
-    // If users exist but not authenticated, redirect to login
     if (usersExist === true && !isAuthenticated && isProtectedRoute) {
       router.push('/login')
       return
     }
 
-    // If authenticated and trying to access login/setup, redirect to dashboard
     if (isAuthenticated && isAuthRoute) {
       router.push('/')
       return

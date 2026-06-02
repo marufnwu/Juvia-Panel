@@ -345,7 +345,7 @@ CREATE TABLE server_info (
 );
 
 -- Insert default row
-INSERT INTO server_info (id, hostname, os, architecture)
+INSERT OR IGNORE INTO server_info (id, hostname, os, architecture)
 VALUES (1, 'localhost', 'Unknown', 'amd64');
 
 -- Firewall rules managed by the panel

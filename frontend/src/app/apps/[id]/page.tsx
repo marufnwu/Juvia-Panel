@@ -3,8 +3,7 @@
 import { useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 
-export const dynamic = 'force-dynamic'
-export const dynamicParams = true
+export function generateStaticParams() { return [] }
 
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'

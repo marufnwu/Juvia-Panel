@@ -77,7 +77,7 @@ func main() {
 	agentClient = agent.NewClient(socketPath)
 
 	// Initialize Caddy manager
-	caddy := proxy.New("/etc/panel/Caddyfile")
+	caddy := proxy.New(cfg.CaddyConfig)
 	caddyMgr = proxy.NewCaddyManager(caddy, agentClient)
 
 	// Create Gin router
@@ -816,8 +816,9 @@ func main() {
 	}
 
 	// Create HTTP server
+	addr := fmt.Sprintf("%s:%d", cfg.APIHost, cfg.APIPort)
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.APIPort),
+		Addr:         addr,
 		Handler:      router,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
@@ -826,7 +827,7 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		log.Printf("Starting API server on port %d", cfg.APIPort)
+		log.Printf("Starting API server on %s (version %s)", addr, cfg.Version)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
 		}

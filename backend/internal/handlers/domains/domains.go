@@ -54,7 +54,7 @@ func (h *Handler) ListDomains(c *gin.Context) {
 
 // getDomainsFromCaddyfile parses domains from the Caddyfile
 func (h *Handler) getDomainsFromCaddyfile() []map[string]string {
-	caddyPath := filepath.Join(h.cfg.ConfigDir, "Caddyfile")
+	caddyPath := h.cfg.CaddyConfig
 	data, err := os.ReadFile(caddyPath)
 	if err != nil {
 		return []map[string]string{}
@@ -201,7 +201,7 @@ func (h *Handler) RenewSSL(c *gin.Context) {
 	ctx := context.Background()
 
 	// Run caddy reload
-	caddyPath := filepath.Join(h.cfg.ConfigDir, "Caddyfile")
+	caddyPath := h.cfg.CaddyConfig
 	cmd := exec.CommandContext(ctx, "caddy", "reload", "--config", caddyPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil && !strings.Contains(string(output), "success") {
@@ -378,7 +378,7 @@ func (h *Handler) configureDomain(appID, domain string, internalPort int, forceH
 }
 `, domain, internalPort, appID)
 
-	caddyPath := filepath.Join(h.cfg.ConfigDir, "Caddyfile")
+	caddyPath := h.cfg.CaddyConfig
 	var existingCaddy string
 	if data, err := os.ReadFile(caddyPath); err == nil {
 		existingCaddy = string(data)
@@ -408,7 +408,7 @@ func (h *Handler) configureDomain(appID, domain string, internalPort int, forceH
 func (h *Handler) removeDomainFromCaddy(domain string) error {
 	ctx := context.Background()
 
-	caddyPath := filepath.Join(h.cfg.ConfigDir, "Caddyfile")
+	caddyPath := h.cfg.CaddyConfig
 	data, err := os.ReadFile(caddyPath)
 	if err != nil {
 		return nil
@@ -457,7 +457,7 @@ func (h *Handler) provisionSSL(domainID, domain string) {
 		return
 	}
 
-	caddyPath := filepath.Join(h.cfg.ConfigDir, "Caddyfile")
+	caddyPath := h.cfg.CaddyConfig
 	cmd := exec.CommandContext(ctx, "caddy", "reload", "--config", caddyPath)
 	_, err := cmd.CombinedOutput()
 	if err != nil {

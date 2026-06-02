@@ -271,8 +271,10 @@ if [[ "$BUILD_FROM_SOURCE" == "false" ]]; then
 
     # Install UI
     if [[ -f "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" ]]; then
+        rm -rf "$INSTALL_DIR/ui"
         mkdir -p "$INSTALL_DIR/ui"
         tar xzf "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" -C "$INSTALL_DIR/ui/"
+        chown -R juvia:juvia "$INSTALL_DIR/ui"
         log_info "UI installed to $INSTALL_DIR/ui"
     fi
 
@@ -336,28 +338,19 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     npm install --legacy-peer-deps
     npm run build
 
-    # Install UI (standalone mode)
-    if [[ -f "$TEMP_CLONE_DIR/frontend/.next/standalone/server.js" ]]; then
+    # Install UI (static export mode)
+    if [[ -d "$TEMP_CLONE_DIR/frontend/out" ]]; then
         rm -rf "$INSTALL_DIR/ui"
         mkdir -p "$INSTALL_DIR/ui"
-        cp -r "$TEMP_CLONE_DIR/frontend/.next/standalone/"* "$INSTALL_DIR/ui/"
-        cp -r "$TEMP_CLONE_DIR/frontend/.next" "$INSTALL_DIR/ui/"
-        cp "$TEMP_CLONE_DIR/frontend/package.json" "$INSTALL_DIR/ui/"
-        chown -R juvia:juvia "$INSTALL_DIR/ui"
-        log_info "UI (standalone) installed to $INSTALL_DIR/ui"
-    elif [[ -d "$TEMP_CLONE_DIR/frontend/out" ]]; then
-        rm -rf "$INSTALL_DIR/ui/out"
         cp -r "$TEMP_CLONE_DIR/frontend/out" "$INSTALL_DIR/ui/"
-        log_info "UI (static) installed to $INSTALL_DIR/ui"
+        chown -R juvia:juvia "$INSTALL_DIR/ui"
+        log_info "UI installed to $INSTALL_DIR/ui"
     fi
 
     # Copy migrations
     mkdir -p "$CONFIG_DIR/migrations"
     if [[ -d "$TEMP_CLONE_DIR/backend/migrations" ]]; then
         cp "$TEMP_CLONE_DIR/backend/migrations/"*.sql "$CONFIG_DIR/migrations/" 2>/dev/null || true
-    fi
-    if [[ -d "$TEMP_CLONE_DIR/scripts/migrations" ]]; then
-        cp "$TEMP_CLONE_DIR/scripts/migrations/"*.sql "$CONFIG_DIR/migrations/" 2>/dev/null || true
     fi
 
     # Copy Caddyfile
@@ -367,6 +360,11 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     fi
 
     rm -rf "$TEMP_CLONE_DIR"
+fi
+
+if [[ -z "$REPO_VERSION" || "$REPO_VERSION" == "latest" ]]; then
+    log_warn "Could not determine exact version, using 'unknown'"
+    REPO_VERSION="unknown"
 fi
 
 chmod +x /usr/local/bin/juvia-{api,agent,cli}
@@ -458,11 +456,13 @@ step "Setting up systemd services"
 
 JWT_SECRET=$(cat "$CONFIG_DIR/jwt-secret")
 MASTER_KEY=$(cat "$CONFIG_DIR/keys/master")
+ENCRYPTION_KEY=$(cat "$CONFIG_DIR/encryption-key")
 
 # Create environment file for secrets (readable only by root:juvia)
 cat > "$CONFIG_DIR/env" <<EOF
 PANEL_JWT_SECRET=$JWT_SECRET
 PANEL_MASTER_KEY=$MASTER_KEY
+PANEL_ENCRYPTION_KEY=$ENCRYPTION_KEY
 EOF
 chmod 640 "$CONFIG_DIR/env"
 chown root:juvia "$CONFIG_DIR/env"
@@ -477,12 +477,33 @@ Requires=docker.service
 Type=simple
 User=juvia
 Group=juvia
-ExecStart=/usr/local/bin/juvia-agent start --config $CONFIG_DIR/config.yml
+WorkingDirectory=$DATA_DIR
+ExecStart=/usr/local/bin/juvia-agent --config $CONFIG_DIR/config.yml
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
+Environment=PANEL_AGENT_SOCKET=/var/run/panel/agent.sock
+Environment=PANEL_DATA_DIR=$DATA_DIR
+Environment=PANEL_CONFIG_DIR=$CONFIG_DIR
+Environment=PANEL_MIGRATIONS_DIR=$CONFIG_DIR/migrations
 EnvironmentFile=$CONFIG_DIR/env
+
+# Security hardening
+NoNewPrivileges=false
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/run/panel $DATA_DIR/tmp $DATA_DIR/logs
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=juvia-agent
+
+# Hardening
+LimitNOFILE=65536
+TimeoutStartSec=30
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target
@@ -491,19 +512,35 @@ EOF
 cat > /etc/systemd/system/juvia-api.service <<EOF
 [Unit]
 Description=Juvia Panel API Server
-After=network.target docker.service
+After=network.target docker.service juvia-agent.service
 Requires=docker.service
 
 [Service]
 Type=simple
 User=juvia
 Group=juvia
-ExecStart=/usr/local/bin/juvia-api serve --config $CONFIG_DIR/config.yml
+WorkingDirectory=$DATA_DIR
+ExecStart=/usr/local/bin/juvia-api --config $CONFIG_DIR/config.yml
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
+Environment=PANEL_DATA_DIR=$DATA_DIR
+Environment=PANEL_CONFIG_DIR=$CONFIG_DIR
+Environment=PANEL_MIGRATIONS_DIR=$CONFIG_DIR/migrations
+Environment=PANEL_CADDY_CONFIG=$CONFIG_DIR/caddy/Caddyfile
+Environment=PANEL_LOG_DIR=$DATA_DIR/logs
 EnvironmentFile=$CONFIG_DIR/env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=juvia-api
+
+# Hardening
+LimitNOFILE=65536
+TimeoutStartSec=30
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target
@@ -531,39 +568,12 @@ WantedBy=multi-user.target
 EOF
 fi
 
-# Next.js UI service (standalone mode)
-if [[ -f "$INSTALL_DIR/ui/server.js" ]]; then
-    cat > /etc/systemd/system/juvia-ui.service <<EOF
-[Unit]
-Description=Juvia Panel UI (Next.js)
-After=network.target juvia-api.service
-
-[Service]
-Type=simple
-User=juvia
-Group=juvia
-WorkingDirectory=$INSTALL_DIR/ui
-ExecStart=/usr/bin/node $INSTALL_DIR/ui/server.js
-Restart=always
-RestartSec=5
-Environment=PORT=3000
-Environment=NODE_ENV=production
-EnvironmentFile=$CONFIG_DIR/env
-
-[Install]
-WantedBy=multi-user.target
-EOF
-fi
-
 systemctl daemon-reload
 
 systemctl enable juvia-agent 2>/dev/null || true
 systemctl enable juvia-api
 if [[ "$SKIP_CADDY" == "false" ]]; then
     systemctl enable juvia-caddy 2>/dev/null || true
-fi
-if [[ -f "$INSTALL_DIR/ui/server.js" ]]; then
-    systemctl enable juvia-ui 2>/dev/null || true
 fi
 
 log_info "Systemd services configured"
@@ -595,10 +605,6 @@ systemctl start juvia-api
 
 if [[ "$SKIP_CADDY" == "false" ]]; then
     systemctl start juvia-caddy 2>/dev/null || true
-fi
-
-if [[ -f "$INSTALL_DIR/ui/server.js" ]]; then
-    systemctl start juvia-ui 2>/dev/null || true
 fi
 
 log_info "Waiting for services to become healthy..."
@@ -636,48 +642,69 @@ log_info "  3. Deploy your first app"
 
 step "Creating installation manifest"
 
-cat > "$DATA_DIR/.juvia-manifest.json" <<EOF
-{
-  "version": "$REPO_VERSION",
-  "installed_at": "$(date -Iseconds)",
-  "installer_version": "2.0.0",
-  "source": "git",
-  "repo_url": "$REPO_URL",
-  "repo_branch": "$REPO_BRANCH",
-  "system": {
-    "os": "$OS_ID $OS_VERSION",
-    "kernel": "$KERNEL_VERSION",
-    "architecture": "$ARCH"
-  },
-  "users_created": [
-    {
-      "username": "juvia",
-      "uid": $(id -u juvia 2>/dev/null || echo "null"),
-      "home": "$DATA_DIR",
-      "groups": ["juvia", "docker"]
-    }
-  ],
-  "directories_created": [
-    "$DATA_DIR",
-    "$CONFIG_DIR",
-    "$INSTALL_DIR",
-    "/var/run/panel"
-  ],
-  "files_installed": [
-    {"path": "/usr/local/bin/juvia-api", "size": $(stat -c%s /usr/local/bin/juvia-api 2>/dev/null || echo "0")},
-    {"path": "/usr/local/bin/juvia-agent", "size": $(stat -c%s /usr/local/bin/juvia-agent 2>/dev/null || echo "0")},
-    {"path": "/usr/local/bin/juvia-cli", "size": $(stat -c%s /usr/local/bin/juvia-cli 2>/dev/null || echo "0")}
-  ],
-  "services_created": [
-    "juvia-agent.service",
-    "juvia-api.service",
-    "juvia-caddy.service",
-    "juvia-ui.service"
-  ],
-  "firewall_rules_added": $FIREWALL_RULES_ADDED,
-  "packages_installed": $(printf '%s\n' "${PACKAGES_INSTALLED[@]}" | jq -R . | jq -s .)
-}
-EOF
+# Build manifest using jq to ensure valid JSON
+PACKAGES_JSON=$(printf '%s\n' "${PACKAGES_INSTALLED[@]}" | jq -R . | jq -s .)
+API_SIZE=$(stat -c%s /usr/local/bin/juvia-api 2>/dev/null || echo 0)
+AGENT_SIZE=$(stat -c%s /usr/local/bin/juvia-agent 2>/dev/null || echo 0)
+CLI_SIZE=$(stat -c%s /usr/local/bin/juvia-cli 2>/dev/null || echo 0)
+JUVIA_UID=$(id -u juvia 2>/dev/null || echo null)
+
+jq -n \
+  --arg version "${REPO_VERSION:-unknown}" \
+  --arg installed_at "$(date -Iseconds)" \
+  --arg repo_url "$REPO_URL" \
+  --arg repo_branch "$REPO_BRANCH" \
+  --arg os "$OS_ID $OS_VERSION" \
+  --arg kernel "$KERNEL_VERSION" \
+  --arg arch "$ARCH" \
+  --arg data_dir "$DATA_DIR" \
+  --arg config_dir "$CONFIG_DIR" \
+  --arg install_dir "$INSTALL_DIR" \
+  --argjson juvia_uid "$JUVIA_UID" \
+  --argjson api_size "$API_SIZE" \
+  --argjson agent_size "$AGENT_SIZE" \
+  --argjson cli_size "$CLI_SIZE" \
+  --argjson packages "$PACKAGES_JSON" \
+  --argjson firewall "$FIREWALL_RULES_ADDED" \
+  '{
+    version: $version,
+    installed_at: $installed_at,
+    installer_version: "2.0.0",
+    source: "git",
+    repo_url: $repo_url,
+    repo_branch: $repo_branch,
+    system: {
+      os: $os,
+      kernel: $kernel,
+      architecture: $arch
+    },
+    users_created: [
+      {
+        username: "juvia",
+        uid: $juvia_uid,
+        home: $data_dir,
+        groups: ["juvia", "docker"]
+      }
+    ],
+    directories_created: [
+      $data_dir,
+      $config_dir,
+      $install_dir,
+      "/var/run/panel"
+    ],
+    files_installed: [
+      {path: "/usr/local/bin/juvia-api", size: $api_size},
+      {path: "/usr/local/bin/juvia-agent", size: $agent_size},
+      {path: "/usr/local/bin/juvia-cli", size: $cli_size}
+    ],
+    services_created: [
+      "juvia-agent.service",
+      "juvia-api.service",
+      "juvia-caddy.service"
+    ],
+    firewall_rules_added: $firewall,
+    packages_installed: $packages
+  }' > "$DATA_DIR/.juvia-manifest.json"
 
 chown juvia:juvia "$DATA_DIR/.juvia-manifest.json" 2>/dev/null || true
 

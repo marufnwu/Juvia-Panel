@@ -3,8 +3,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 
-export const dynamic = 'force-dynamic'
-export const dynamicParams = true
+export function generateStaticParams() { return [] }
 
 import Link from 'next/link'
 

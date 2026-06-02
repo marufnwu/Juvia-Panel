@@ -38,6 +38,7 @@ func findMigrationsDir() string {
 		"migrations",
 		"../migrations",
 		"../../migrations",
+		"../../../migrations",
 	}
 
 	for _, candidate := range candidates {

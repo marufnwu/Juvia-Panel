@@ -79,6 +79,13 @@ async function refreshToken(): Promise<boolean> {
     })
     if (!response.ok) {
       useAuthStore.getState().clearAuth()
+      // Redirect to login if we're in a browser and not already on auth pages
+      if (typeof window !== 'undefined') {
+        const path = window.location.pathname
+        if (path !== '/login' && path !== '/setup') {
+          window.location.href = '/login'
+        }
+      }
       return false
     }
     const data = await response.json()
@@ -86,6 +93,12 @@ async function refreshToken(): Promise<boolean> {
     return true
   } catch {
     useAuthStore.getState().clearAuth()
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname
+      if (path !== '/login' && path !== '/setup') {
+        window.location.href = '/login'
+      }
+    }
     return false
   }
 }

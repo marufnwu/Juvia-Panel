@@ -23,7 +23,7 @@ INSTALL_DIR="${PANEL_INSTALL_DIR:-/opt/panel}"
 REPO_URL="${PANEL_REPO_URL:-https://github.com/marufnwu/Juvia-Panel.git}"
 REPO_BRANCH="${PANEL_REPO_BRANCH:-master}"
 
-CURRENT_VERSION_FILE="/var/run/panel/.version"
+CURRENT_VERSION_FILE="$DATA_DIR/.version"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -77,9 +77,6 @@ rollback_update() {
 
     systemctl restart juvia-agent 2>/dev/null || true
     systemctl restart juvia-api
-    if systemctl is-enabled juvia-ui &>/dev/null; then
-        systemctl restart juvia-ui 2>/dev/null || true
-    fi
     if systemctl is-enabled juvia-caddy &>/dev/null; then
         systemctl restart juvia-caddy 2>/dev/null || true
     fi
@@ -203,14 +200,23 @@ else
         mkdir -p "$DOWNLOAD_DIR/extracted"
         tar xzf "$DOWNLOAD_DIR/juvia-release.tar.gz" -C "$DOWNLOAD_DIR/extracted/"
 
-        for binary in juvia-api juvia-agent juvia-cli; do
-            if [[ -f "$DOWNLOAD_DIR/extracted/$binary" ]]; then
-                chmod +x "$DOWNLOAD_DIR/extracted/$binary"
+        MISSING_CRITICAL=0
+        for binary in juvia-api juvia-agent; do
+            if [[ ! -f "$DOWNLOAD_DIR/extracted/$binary" ]]; then
+                log_warn "Critical binary $binary not found in bundle"
+                MISSING_CRITICAL=1
             else
-                log_warn "Binary $binary not found in bundle"
-                BUILD_FROM_SOURCE=true
+                chmod +x "$DOWNLOAD_DIR/extracted/$binary"
             fi
         done
+        # juvia-cli is optional
+        if [[ -f "$DOWNLOAD_DIR/extracted/juvia-cli" ]]; then
+            chmod +x "$DOWNLOAD_DIR/extracted/juvia-cli"
+        fi
+        if [[ $MISSING_CRITICAL -eq 1 ]]; then
+            log_warn "Critical binaries missing from release bundle, will build from source"
+            BUILD_FROM_SOURCE=true
+        fi
     else
         log_warn "Failed to download release bundle, will build from source"
         BUILD_FROM_SOURCE=true
@@ -242,18 +248,16 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     npm ci --legacy-peer-deps --silent 2>/dev/null || npm install --legacy-peer-deps 2>/dev/null || true
     npm run build 2>/dev/null || log_warn "UI build failed, preserving existing UI"
 
-    if [[ -f "$TEMP_CLONE/frontend/.next/standalone/server.js" ]]; then
-        cd "$TEMP_CLONE/frontend/.next/standalone"
-        tar -czf "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" .
-    elif [[ -d "$TEMP_CLONE/frontend/out" ]]; then
+    if [[ -d "$TEMP_CLONE/frontend/out" ]]; then
         cd "$TEMP_CLONE/frontend"
         tar -czf "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" out/
+    else
+        log_warn "UI build output not found, preserving existing UI"
     fi
 
     # Copy migrations
     mkdir -p "$DOWNLOAD_DIR/extracted/migrations"
     cp "$TEMP_CLONE/backend/migrations/"*.sql "$DOWNLOAD_DIR/extracted/migrations/" 2>/dev/null || true
-    cp "$TEMP_CLONE/scripts/migrations/"*.sql "$DOWNLOAD_DIR/extracted/migrations/" 2>/dev/null || true
 
     rm -rf "$TEMP_CLONE"
     NEW_VERSION="${NEW_VERSION:-$RELEASE_TAG}"
@@ -269,29 +273,15 @@ systemctl stop juvia-api 2>/dev/null || true
 systemctl stop juvia-caddy 2>/dev/null || true
 log_info "Services stopped"
 
-log_step "Step 3b: Running database migrations"
+log_step "Step 3b: Deploying migrations"
 DB_PATH="$DATA_DIR/panel.db"
 
-# First, copy any new migrations from the download
+# Copy any new migrations from the download - the API process applies them on next start
 if [[ -d "$DOWNLOAD_DIR/extracted/migrations" ]]; then
     mkdir -p "$CONFIG_DIR/migrations"
     cp "$DOWNLOAD_DIR/extracted/migrations/"*.sql "$CONFIG_DIR/migrations/" 2>/dev/null || true
-fi
-
-MIGRATIONS_DIR="$CONFIG_DIR/migrations"
-if [[ -f "$DB_PATH" ]] && [[ -d "$MIGRATIONS_DIR" ]]; then
-    log_info "Applying pending migrations..."
-    for migration in "$MIGRATIONS_DIR"/*.up.sql; do
-        if [[ -f "$migration" ]]; then
-            MIGRATION_NAME=$(basename "$migration")
-            sqlite3 "$DB_PATH" < "$migration" 2>/dev/null && \
-                log_info "Applied: $MIGRATION_NAME" || \
-                log_info "Already applied or skipped: $MIGRATION_NAME"
-        fi
-    done
-    log_info "Migrations complete"
-else
-    log_warn "Database or migrations directory not found, skipping migrations"
+    chown -R juvia:juvia "$CONFIG_DIR/migrations" 2>/dev/null || true
+    log_info "Migrations deployed (will be applied by API on next start)"
 fi
 
 log_step "Step 4: Applying update (atomic replace)"
@@ -306,13 +296,53 @@ for binary in juvia-api juvia-agent juvia-cli; do
 done
 
 if [[ -f "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" ]]; then
-    mkdir -p "$INSTALL_DIR/ui.new"
-    tar xzf "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" -C "$INSTALL_DIR/ui.new/"
+    # Verify the tarball contains the expected static export structure
+    if ! tar tzf "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" | grep -q "^out/index.html$"; then
+        log_error "UI tarball appears to be invalid (no out/index.html found)"
+        log_error "Refusing to update UI with corrupted package"
+        exit 1
+    fi
+
+    rm -rf "$INSTALL_DIR/ui.old"
     if [[ -d "$INSTALL_DIR/ui" ]]; then
         mv "$INSTALL_DIR/ui" "$INSTALL_DIR/ui.old" 2>/dev/null || true
     fi
-    mv "$INSTALL_DIR/ui.new" "$INSTALL_DIR/ui"
+    mkdir -p "$INSTALL_DIR/ui"
+    tar xzf "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" -C "$INSTALL_DIR/ui/"
+    chown -R juvia:juvia "$INSTALL_DIR/ui" 2>/dev/null || true
     log_info "UI updated"
+else
+    log_warn "UI tarball not found in update package"
+fi
+
+# Update Caddyfile if new one is available
+if [[ -f "$DOWNLOAD_DIR/extracted/config/Caddyfile" ]]; then
+    cp "$DOWNLOAD_DIR/extracted/config/Caddyfile" "$CONFIG_DIR/caddy/Caddyfile"
+    log_info "Caddyfile updated"
+    # Reload Caddy so the new config takes effect
+    if systemctl is-active juvia-caddy &>/dev/null; then
+        systemctl reload juvia-caddy 2>/dev/null || true
+    fi
+fi
+
+# Update scripts in /usr/local/bin
+SCRIPT_UPDATED=0
+for script_name in juvia-install juvia-update juvia-uninstall; do
+    if [[ -f "$DOWNLOAD_DIR/extracted/scripts/install.sh" ]] && [[ "$script_name" == "juvia-install" ]]; then
+        install -m 755 "$DOWNLOAD_DIR/extracted/scripts/install.sh" /usr/local/bin/juvia-install
+        SCRIPT_UPDATED=1
+    fi
+    if [[ -f "$DOWNLOAD_DIR/extracted/scripts/update.sh" ]] && [[ "$script_name" == "juvia-update" ]]; then
+        install -m 755 "$DOWNLOAD_DIR/extracted/scripts/update.sh" /usr/local/bin/juvia-update
+        SCRIPT_UPDATED=1
+    fi
+    if [[ -f "$DOWNLOAD_DIR/extracted/scripts/uninstall.sh" ]] && [[ "$script_name" == "juvia-uninstall" ]]; then
+        install -m 755 "$DOWNLOAD_DIR/extracted/scripts/uninstall.sh" /usr/local/bin/juvia-uninstall
+        SCRIPT_UPDATED=1
+    fi
+done
+if [[ $SCRIPT_UPDATED -eq 1 ]]; then
+    log_info "Scripts updated"
 fi
 
 rm -rf "$DOWNLOAD_DIR"
@@ -322,9 +352,6 @@ log_step "Step 5: Starting services"
 systemctl start juvia-agent 2>/dev/null || true
 sleep 2
 systemctl start juvia-api
-if systemctl is-enabled juvia-ui &>/dev/null; then
-    systemctl start juvia-ui 2>/dev/null || true
-fi
 if systemctl is-enabled juvia-caddy &>/dev/null; then
     systemctl start juvia-caddy 2>/dev/null || true
 fi

@@ -29,7 +29,7 @@ type AppRoute struct {
 // New creates a new Caddy instance
 func New(configPath string) *Caddy {
 	if configPath == "" {
-		configPath = "/etc/panel/Caddyfile"
+		configPath = "/etc/panel/caddy/Caddyfile"
 	}
 	return &Caddy{
 		configPath: configPath,

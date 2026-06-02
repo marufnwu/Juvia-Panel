@@ -134,7 +134,6 @@ fi
 
 log_step "Step 2: Stopping services"
 systemctl stop juvia-caddy 2>/dev/null || true
-systemctl stop juvia-ui 2>/dev/null || true
 systemctl stop juvia-api 2>/dev/null || true
 systemctl stop juvia-agent 2>/dev/null || true
 log_info "All Juvia Panel services stopped"
@@ -161,12 +160,10 @@ log_step "Step 4: Removing systemd services"
 systemctl disable juvia-agent 2>/dev/null || true
 systemctl disable juvia-api 2>/dev/null || true
 systemctl disable juvia-caddy 2>/dev/null || true
-systemctl disable juvia-ui 2>/dev/null || true
 
 rm -f /etc/systemd/system/juvia-agent.service
 rm -f /etc/systemd/system/juvia-api.service
 rm -f /etc/systemd/system/juvia-caddy.service
-rm -f /etc/systemd/system/juvia-ui.service
 
 systemctl daemon-reload
 systemctl reset-failed 2>/dev/null || true
@@ -215,12 +212,17 @@ else
 fi
 
 log_step "Step 8: Verifying cleanup"
-REMAINING_PROCESSES=$(ps aux | grep -E 'juvia-(agent|api|cli)' | grep -v grep || true)
+REMAINING_PROCESSES=""
+for svc in juvia-agent juvia-api; do
+    if systemctl is-active "$svc" &>/dev/null; then
+        REMAINING_PROCESSES+="$svc (systemd active)\n"
+    fi
+done
 if [[ -n "$REMAINING_PROCESSES" ]]; then
-    log_warn "Some Juvia Panel processes still running:"
-    echo "$REMAINING_PROCESSES"
+    log_warn "Some Juvia Panel services still active:"
+    echo -e "$REMAINING_PROCESSES"
 else
-    log_info "No Juvia Panel processes running"
+    log_info "No Juvia Panel services running"
 fi
 
 REMAINING_PORTS=$(ss -tlnp 2>/dev/null | grep -E ':(2053|9090)' | grep -v grep || true)
