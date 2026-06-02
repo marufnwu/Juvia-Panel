@@ -3,8 +3,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 
-export function generateStaticParams() { return [] }
-
 import Link from 'next/link'
 
 import {
@@ -133,7 +131,7 @@ function formatDuration(seconds: number): string {
 export default function CronJobDetailPage() {
   const params = useParams()
   const router = useRouter()
-  const cronJobId = params.id as string
+  const cronJobId = (params.slug as string[])?.[0] as string
 
   const [cronJob, setCronJob] = useState<CronJob | null>(null)
   const [executionLogs, setExecutionLogs] = useState<ExecutionLog[]>([])

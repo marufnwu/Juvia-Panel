@@ -3,8 +3,6 @@
 import { useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 
-export function generateStaticParams() { return [] }
-
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -149,8 +147,8 @@ export default function AppDetailPage() {
   const searchParams = useSearchParams()
   const { addToast } = useToastStore()
   const queryClient = useQueryClient()
-  
-  const appId = params.id as string
+
+  const appId = (params.slug as string[])?.[0] as string
   const initialTab = searchParams.get('tab') || 'overview'
   
   const [activeTab, setActiveTab] = useState(initialTab)
