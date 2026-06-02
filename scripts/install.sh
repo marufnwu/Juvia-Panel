@@ -243,18 +243,10 @@ else
     log_info "Latest release: $RELEASE_TAG"
     BASE_URL="https://github.com/marufnwu/Juvia-Panel/releases/download/${RELEASE_TAG}"
 
-    # Try arch-specific bundle first, then generic
-    DOWNLOADED=false
-    for bundle_name in "juvia-release-${ARCH_SUFFIX}.tar.gz" "juvia-release.tar.gz"; do
-        log_info "Trying bundle: $bundle_name..."
-        if curl -sfL "${BASE_URL}/${bundle_name}" -o "$DOWNLOAD_DIR/juvia-release.tar.gz"; then
-            DOWNLOADED=true
-            log_info "Downloaded bundle: $bundle_name"
-            break
-        fi
-    done
+    BUNDLE_URL="${BASE_URL}/juvia-release-${ARCH_SUFFIX}.tar.gz"
+    log_info "Downloading bundle from $BUNDLE_URL..."
 
-    if [[ "$DOWNLOADED" == "false" ]]; then
+    if ! curl -sfL "$BUNDLE_URL" -o "$DOWNLOAD_DIR/juvia-release.tar.gz"; then
         log_warn "Failed to download release bundle, will build from source"
         BUILD_FROM_SOURCE=true
     fi
