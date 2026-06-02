@@ -282,6 +282,7 @@ if [[ "$BUILD_FROM_SOURCE" == "false" ]]; then
     if [[ -d "$DOWNLOAD_DIR/extracted/migrations" ]]; then
         mkdir -p "$CONFIG_DIR/migrations"
         cp "$DOWNLOAD_DIR/extracted/migrations/"*.sql "$CONFIG_DIR/migrations/" 2>/dev/null || true
+        chown -R juvia:juvia "$CONFIG_DIR/migrations"
         log_info "Migrations copied to $CONFIG_DIR/migrations"
     fi
 
@@ -351,6 +352,7 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     mkdir -p "$CONFIG_DIR/migrations"
     if [[ -d "$TEMP_CLONE_DIR/backend/migrations" ]]; then
         cp "$TEMP_CLONE_DIR/backend/migrations/"*.sql "$CONFIG_DIR/migrations/" 2>/dev/null || true
+        chown -R juvia:juvia "$CONFIG_DIR/migrations"
     fi
 
     # Copy Caddyfile
@@ -424,39 +426,10 @@ if [[ ! -f "$DB_PATH" ]]; then
     chown juvia:juvia "$DB_PATH" 2>/dev/null || true
 fi
 
-# Check current migration state
-TABLE_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';" 2>/dev/null || echo "0")
-APPLIED_MIGRATIONS=$(sqlite3 "$DB_PATH" "SELECT COALESCE(MAX(version), 0) FROM schema_migrations WHERE dirty = 0;" 2>/dev/null || echo "0")
-
-log_info "Applying database migrations (current state: $TABLE_COUNT tables, last applied: $APPLIED_MIGRATIONS)..."
-
-# Apply each migration if not already applied
-for migration in "$CONFIG_DIR/migrations"/000001_init.up.sql "$CONFIG_DIR/migrations"/000002_settings_and_exports.up.sql; do
-    if [[ ! -f "$migration" ]]; then
-        log_warn "Migration not found: $migration"
-        continue
-    fi
-
-    MIGRATION_NAME=$(basename "$migration")
-    MIGRATION_VERSION="${MIGRATION_NAME:0:6}"  # e.g. 000001
-    MIGRATION_VERSION_NUM=$((10#$MIGRATION_VERSION))  # strip leading zeros
-
-    if [[ $MIGRATION_VERSION_NUM -le $APPLIED_MIGRATIONS ]]; then
-        log_info "Skipping already-applied migration: $MIGRATION_NAME"
-        continue
-    fi
-
-    log_info "Applying $MIGRATION_NAME..."
-    if sqlite3 "$DB_PATH" < "$migration" 2>/dev/null; then
-        # Record in schema_migrations table (idempotent via INSERT OR IGNORE)
-        sqlite3 "$DB_PATH" "INSERT OR IGNORE INTO schema_migrations (version, dirty) VALUES ($MIGRATION_VERSION_NUM, 0);" 2>/dev/null || true
-    else
-        log_warn "Migration $MIGRATION_NAME failed (may be already applied)"
-    fi
-done
-
+# Set WAL mode and other pragmas. The Go API will run migrations on first start
+# using embedded SQL migrations - this avoids permission issues and double-application.
 sqlite3 "$DB_PATH" "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;" 2>/dev/null || true
-log_info "Database initialized with WAL mode and foreign keys enabled"
+log_info "Database initialized. Migrations will be applied by API on first start."
 
 step "Setting up systemd services"
 

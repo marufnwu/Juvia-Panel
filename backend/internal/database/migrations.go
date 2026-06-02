@@ -90,18 +90,19 @@ type migrationFile struct {
 	data []byte
 }
 
-// loadMigrations loads migrations from env-dir, then embedded, then filesystem fallback.
+// loadMigrations loads embedded migrations first (always works, no file
+// permission issues), then falls back to filesystem sources.
 func loadMigrations() ([]migrationFile, error) {
-	// 1. Try PANEL_MIGRATIONS_DIR from env (set in systemd unit)
+	// 1. Try embedded migrations (compiled into the binary, always works)
+	if files, err := loadFromEmbedded(); err == nil && len(files) > 0 {
+		return files, nil
+	}
+
+	// 2. Try PANEL_MIGRATIONS_DIR from env (allows override during updates)
 	if dir := os.Getenv("PANEL_MIGRATIONS_DIR"); dir != "" {
 		if files, err := loadFromDir(dir); err == nil && len(files) > 0 {
 			return files, nil
 		}
-	}
-
-	// 2. Try embedded migrations
-	if files, err := loadFromEmbedded(); err == nil && len(files) > 0 {
-		return files, nil
 	}
 
 	// 3. Filesystem fallback (./migrations)
