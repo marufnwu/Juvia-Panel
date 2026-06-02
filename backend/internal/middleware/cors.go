@@ -11,6 +11,7 @@ import (
 func CORS(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
+		host := c.Request.Host
 		allowed := false
 
 		if cfg.Env == "development" {
@@ -29,10 +30,21 @@ func CORS(cfg *config.Config) gin.HandlerFunc {
 				}
 			}
 
-			// Fallback: allow same-origin requests (no Origin header = same origin)
+			// Fallback 1: allow if origin contains PanelDomain
 			if !allowed && cfg.PanelDomain != "" && strings.Contains(origin, cfg.PanelDomain) {
 				c.Header("Access-Control-Allow-Origin", origin)
 				allowed = true
+			}
+
+			// Fallback 2: allow if origin matches Host header (handles IP-based access)
+			if !allowed {
+				originHost := strings.Split(origin, "://")[1]
+				originHost = strings.Split(originHost, ":")[0]
+				hostOnly := strings.Split(host, ":")[0]
+				if originHost == hostOnly {
+					c.Header("Access-Control-Allow-Origin", origin)
+					allowed = true
+				}
 			}
 		}
 
