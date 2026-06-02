@@ -199,7 +199,17 @@ else
     log_info "Downloading release: $RELEASE_TAG"
     BASE_URL="https://github.com/marufnwu/Juvia-Panel/releases/download/${RELEASE_TAG}"
 
-    if curl -sfL "${BASE_URL}/juvia-release-${ARCH_SUFFIX}.tar.gz" -o "$DOWNLOAD_DIR/juvia-release.tar.gz"; then
+    # Try arch-specific bundle first, then generic
+    DOWNLOADED=false
+    for bundle_name in "juvia-release-${ARCH_SUFFIX}.tar.gz" "juvia-release.tar.gz"; do
+        if curl -sfL "${BASE_URL}/${bundle_name}" -o "$DOWNLOAD_DIR/juvia-release.tar.gz"; then
+            DOWNLOADED=true
+            log_info "Downloaded bundle: $bundle_name"
+            break
+        fi
+    done
+
+    if [[ "$DOWNLOADED" == "true" ]]; then
         mkdir -p "$DOWNLOAD_DIR/extracted"
         tar xzf "$DOWNLOAD_DIR/juvia-release.tar.gz" -C "$DOWNLOAD_DIR/extracted/"
 
