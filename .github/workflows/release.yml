@@ -64,15 +64,15 @@ jobs:
           go build -ldflags="-s -w" -o ../build/juvia-cli ./cmd/debug
 
       - name: Install Frontend Dependencies
-        run: cd frontend && npm ci --legacy-peer-deps
+        run: cd frontend && npm install --legacy-peer-deps
 
       - name: Build Frontend
         run: cd frontend && npm run build
 
       - name: Package Frontend
         run: |
-          cd frontend
-          tar -czf ../build/juvia-ui.tar.gz out/
+          cd frontend/.next/standalone
+          tar -czf ../../build/juvia-ui.tar.gz .
 
       - name: Copy Migrations
         run: |
@@ -166,7 +166,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Frontend Dependencies
-        run: cd frontend && npm ci --legacy-peer-deps
+        run: cd frontend && npm install --legacy-peer-deps
 
       - name: Lint Frontend
         run: |
