@@ -71,6 +71,7 @@ jobs:
 
       - name: Package Frontend
         run: |
+          mkdir -p build
           cd frontend/.next/standalone
           tar -czf ../../build/juvia-ui.tar.gz .
 
