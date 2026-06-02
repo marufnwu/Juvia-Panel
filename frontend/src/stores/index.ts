@@ -53,6 +53,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           name: data.user.username || username,
           role: data.user.role || 'viewer',
         } : null,
+        usersExist: true,
       })
     } catch (error) {
       set({ isAuthenticated: false, accessToken: null, user: null })
@@ -101,6 +102,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           name: data.user.username,
           role: data.user.role,
         } : null,
+        usersExist: true,
       })
       return data
     } catch (error) {
