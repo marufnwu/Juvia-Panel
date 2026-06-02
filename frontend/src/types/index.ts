@@ -31,11 +31,33 @@ export interface App {
   id: string
   name: string
   status: AppStatus
+  health_status?: string
   runtime: string
-  domain?: string
-  git_url?: string
-  branch?: string
-  current_deployment_id?: string
+  runtime_version?: string
+  primary_domain?: string
+  domains?: string[]
+  source?: {
+    type: string
+    provider?: string
+    repo_url?: string
+    branch?: string
+    auto_deploy?: boolean
+    last_commit?: string
+    last_commit_message?: string
+    last_commit_author?: string
+    last_commit_timestamp?: string
+  }
+  build_strategy?: string
+  container_id?: string
+  ports?: { internal: number; external?: number }
+  env_count?: number
+  volume_count?: number
+  resource_usage?: {
+    cpu_percent: number
+    memory_mb: number
+    memory_limit_mb: number
+  }
+  last_deployed_at?: string
   created_at: string
   updated_at: string
 }
@@ -43,11 +65,22 @@ export interface App {
 // Create app input
 export interface CreateAppInput {
   name: string
-  git_url?: string
-  branch?: string
-  domain?: string
-  build_strategy?: BuildStrategy
-  env_vars?: EnvVariableInput[]
+  source: {
+    type: 'git' | 'upload' | 'docker_compose'
+    repo_url?: string
+    branch?: string
+    auto_deploy?: boolean
+  }
+  build?: {
+    strategy?: BuildStrategy
+    build_command?: string
+    start_command?: string
+  }
+  domain?: {
+    primary?: string
+    force_https?: boolean
+  }
+  environment?: Record<string, string>
 }
 
 // Environment variable
@@ -69,10 +102,15 @@ export interface Deployment {
   app_id: string
   status: DeploymentStatus
   commit?: string
+  commit_message?: string
+  commit_author?: string
   branch?: string
-  author?: string
-  duration?: number
-  created_at: string
+  build_duration_seconds?: number
+  deploy_duration_seconds?: number
+  started_at?: string
+  completed_at?: string
+  triggered_by?: string
+  triggered_by_user?: string
 }
 
 // Service

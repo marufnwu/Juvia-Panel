@@ -185,6 +185,7 @@ func (h *Handler) GetApp(c *gin.Context) {
 	volumeItems := make([]database.VolumeItem, 0, len(volumes))
 	for _, v := range volumes {
 		volumeItems = append(volumeItems, database.VolumeItem{
+			ID:            v.ID,
 			HostPath:      v.HostPath,
 			ContainerPath: v.ContainerPath,
 			SizeMB:        v.SizeMB,
@@ -376,7 +377,15 @@ func (h *Handler) CreateApp(c *gin.Context) {
 	}
 	
 	// Validate Git URL if source type is git
-	if req.Source.Type == "git" && req.Source.RepoURL != "" {
+	if req.Source.Type == "git" {
+		if req.Source.RepoURL == "" {
+			c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error:     "missing_git_url",
+				Message:   "Repository URL is required when source type is git.",
+				RequestID: requestID,
+			})
+			return
+		}
 		if !ValidateGitURL(req.Source.RepoURL) {
 			c.JSON(http.StatusUnprocessableEntity, ErrorResponse{
 				Error:     "invalid_git_url",
@@ -419,6 +428,7 @@ func (h *Handler) CreateApp(c *gin.Context) {
 	
 	var buildConfig database.BuildConfig
 	if req.Build != nil {
+		buildConfig.Strategy = buildStrategy
 		buildConfig.BuildCommand = req.Build.BuildCommand
 		buildConfig.StartCommand = req.Build.StartCommand
 		if req.Build.HealthCheck != nil {
@@ -431,6 +441,7 @@ func (h *Handler) CreateApp(c *gin.Context) {
 		}
 	} else {
 		// Default health check
+		buildConfig.Strategy = buildStrategy
 		buildConfig.HealthCheck = &database.HealthCheck{
 			Path:     "/health",
 			Interval: 30,

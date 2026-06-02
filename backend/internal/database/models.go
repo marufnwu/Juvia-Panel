@@ -89,6 +89,7 @@ type SourceConfig struct {
 
 // BuildConfig represents build configuration for an app.
 type BuildConfig struct {
+	Strategy        string       `json:"strategy,omitempty"`
 	BuildCommand    string       `json:"build_command,omitempty"`
 	StartCommand    string       `json:"start_command,omitempty"`
 	PreDeployHook   string       `json:"pre_deploy_hook,omitempty"`
@@ -309,6 +310,7 @@ type ContainerInfo struct {
 
 // VolumeItem represents a volume in app detail.
 type VolumeItem struct {
+	ID            string `json:"id"`
 	HostPath      string `json:"host_path"`
 	ContainerPath string `json:"container_path"`
 	SizeMB        int    `json:"size_mb"`

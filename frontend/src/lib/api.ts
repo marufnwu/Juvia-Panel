@@ -171,13 +171,13 @@ export const api = {
       request<App>(`/apps/${id}`),
 
     create: (data: CreateAppInput) =>
-      request<App>('/apps', {
+      request<{ id: string; name: string; status: string; message: string; deployment_id: string }>('/apps', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
 
     update: (id: string, data: Partial<App>) =>
-      request<App>(`/apps/${id}`, {
+      request<{ id: string; name: string; message: string; requires_restart: boolean }>(`/apps/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
@@ -188,7 +188,7 @@ export const api = {
       }),
 
     deploy: (id: string, branch?: string) =>
-      request<Deployment>(`/apps/${id}/deploy`, {
+      request<{ deployment_id: string; status: string; message: string }>(`/apps/${id}/deploy`, {
         method: 'POST',
         body: JSON.stringify({ branch }),
       }),
@@ -204,7 +204,7 @@ export const api = {
       }),
 
     rollback: (id: string, deploymentId: string) =>
-      request<Deployment>(`/apps/${id}/rollback`, {
+      request<{ message: string; new_deployment_id: string; target_deployment_id: string }>(`/apps/${id}/rollback`, {
         method: 'POST',
         body: JSON.stringify({ deployment_id: deploymentId }),
       }),
@@ -373,11 +373,33 @@ export interface App {
   id: string
   name: string
   status: 'running' | 'stopped' | 'deploying' | 'failed'
+  health_status?: string
   runtime: string
-  domain?: string
-  git_url?: string
-  branch?: string
-  current_deployment_id?: string
+  runtime_version?: string
+  primary_domain?: string
+  domains?: string[]
+  source?: {
+    type: string
+    provider?: string
+    repo_url?: string
+    branch?: string
+    auto_deploy?: boolean
+    last_commit?: string
+    last_commit_message?: string
+    last_commit_author?: string
+    last_commit_timestamp?: string
+  }
+  build_strategy?: string
+  container_id?: string
+  ports?: { internal: number; external?: number }
+  env_count?: number
+  volume_count?: number
+  resource_usage?: {
+    cpu_percent: number
+    memory_mb: number
+    memory_limit_mb: number
+  }
+  last_deployed_at?: string
   created_at: string
   updated_at: string
 }
@@ -423,10 +445,15 @@ export interface Deployment {
   app_id: string
   status: 'pending' | 'building' | 'deploying' | 'success' | 'failed'
   commit?: string
+  commit_message?: string
+  commit_author?: string
   branch?: string
-  author?: string
-  duration?: number
-  created_at: string
+  build_duration_seconds?: number
+  deploy_duration_seconds?: number
+  started_at?: string
+  completed_at?: string
+  triggered_by?: string
+  triggered_by_user?: string
 }
 
 export interface Service {

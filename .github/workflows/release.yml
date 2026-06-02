@@ -6,7 +6,41 @@ on:
       - 'v*'
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Run Tests
+        run: |
+          cd backend
+          go test -v ./...
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: cd frontend && npm install --legacy-peer-deps
+
+      - name: Lint Frontend
+        run: |
+          cd frontend
+          npm run lint
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -22,6 +56,7 @@ jobs:
         with:
           go-version: '1.22'
           cache: true
+          cache-dependency-path: backend/go.sum
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -36,40 +71,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
-      - name: Build API Binary
+      - name: Build Go Binaries
         env:
           CGO_ENABLED: 0
           GOOS: linux
           GOARCH: ${{ matrix.arch }}
+          CC: ${{ matrix.arch == 'arm64' && 'aarch64-linux-gnu-gcc' || '' }}
         run: |
           cd backend
-          go build -ldflags="-s -w" -o ../build/juvia-api ./cmd/api
-
-      - name: Build Agent Binary
-        env:
-          CGO_ENABLED: 0
-          GOOS: linux
-          GOARCH: ${{ matrix.arch }}
-        run: |
-          cd backend
-          go build -ldflags="-s -w" -o ../build/juvia-agent ./cmd/agent
-
-      - name: Build CLI Binary
-        env:
-          CGO_ENABLED: 0
-          GOOS: linux
-          GOARCH: ${{ matrix.arch }}
-        run: |
-          cd backend
-          go build -ldflags="-s -w" -o ../build/juvia-cli ./cmd/debug
-
-      - name: Install Frontend Dependencies
-        run: cd frontend && npm install --legacy-peer-deps
+          go build -ldflags="-s -w" -o ../build/juvia-api-linux-${{ matrix.arch }} ./cmd/api
+          go build -ldflags="-s -w" -o ../build/juvia-agent-linux-${{ matrix.arch }} ./cmd/agent
+          go build -ldflags="-s -w" -o ../build/juvia-cli-linux-${{ matrix.arch }} ./cmd/debug
 
       - name: Build Frontend
-        run: cd frontend && npm run build
+        if: matrix.arch == 'amd64'
+        run: cd frontend && npm install --legacy-peer-deps && npm run build
 
       - name: Package Frontend
+        if: matrix.arch == 'amd64'
         run: |
           mkdir -p build
           cd frontend/.next/standalone
@@ -101,22 +120,33 @@ jobs:
       - name: Generate Checksums
         run: |
           cd build
-          sha256sum juvia-api juvia-agent juvia-cli juvia-ui.tar.gz juvia-release-${{ matrix.arch }}.tar.gz > checksums-${{ matrix.arch }}.txt
+          sha256sum juvia-api-linux-${{ matrix.arch }} juvia-agent-linux-${{ matrix.arch }} juvia-cli-linux-${{ matrix.arch }} juvia-release-${{ matrix.arch }}.tar.gz > checksums-${{ matrix.arch }}.txt
 
-      - name: Upload artifacts
+      - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
-          name: build-${{ matrix.arch }}
+          name: binaries-${{ matrix.arch }}
           path: |
-            build/juvia-api
-            build/juvia-agent
-            build/juvia-cli
-            build/juvia-ui.tar.gz
-            build/juvia-release-${{ matrix.arch }}.tar.gz
+            build/juvia-api-linux-${{ matrix.arch }}
+            build/juvia-agent-linux-${{ matrix.arch }}
+            build/juvia-cli-linux-${{ matrix.arch }}
             build/checksums-${{ matrix.arch }}.txt
 
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.arch }}
+          path: build/juvia-release-${{ matrix.arch }}.tar.gz
+
+      - name: Upload UI
+        if: matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: juvia-ui
+          path: build/juvia-ui.tar.gz
+
   release:
-    needs: build
+    needs: [build, test]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -130,46 +160,14 @@ jobs:
         run: find release-assets -type f | sort
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             release-assets/**/*.tar.gz
             release-assets/**/*.txt
-            release-assets/build-amd64/juvia-api
-            release-assets/build-amd64/juvia-agent
-            release-assets/build-amd64/juvia-cli
+            release-assets/**/juvia-api-linux-*
+            release-assets/**/juvia-agent-linux-*
+            release-assets/**/juvia-cli-linux-*
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-          cache: true
-
-      - name: Run Tests
-        run: |
-          cd backend
-          go test -v ./...
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install Frontend Dependencies
-        run: cd frontend && npm install --legacy-peer-deps
-
-      - name: Lint Frontend
-        run: |
-          cd frontend
-          npm run lint
