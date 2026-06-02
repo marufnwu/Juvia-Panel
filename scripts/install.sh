@@ -418,38 +418,44 @@ log_info "Configuration generated at $CONFIG_DIR/config.yml"
 step "Initializing database"
 DB_PATH="$DATA_DIR/panel.db"
 
-if [[ -f "$DB_PATH" ]]; then
-    log_warn "Database already exists at $DB_PATH"
-    # Check if tables already exist
-    TABLE_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';" 2>/dev/null || echo "0")
-    if [[ "$TABLE_COUNT" -gt 0 ]]; then
-        log_info "Database already has $TABLE_COUNT tables, skipping migrations"
-    else
-        log_info "Applying database migrations..."
-        for migration in "$CONFIG_DIR/migrations"/000001_init.up.sql "$CONFIG_DIR/migrations"/000002_settings_and_exports.up.sql; do
-            if [[ -f "$migration" ]]; then
-                log_info "Applying $(basename "$migration")..."
-                sqlite3 "$DB_PATH" < "$migration" 2>/dev/null || true
-            else
-                log_warn "Migration not found: $migration"
-            fi
-        done
-    fi
-else
+# Create database file if needed
+if [[ ! -f "$DB_PATH" ]]; then
     touch "$DB_PATH"
     chown juvia:juvia "$DB_PATH" 2>/dev/null || true
-    log_info "Applying database migrations..."
-    for migration in "$CONFIG_DIR/migrations"/000001_init.up.sql "$CONFIG_DIR/migrations"/000002_settings_and_exports.up.sql; do
-        if [[ -f "$migration" ]]; then
-            log_info "Applying $(basename "$migration")..."
-            sqlite3 "$DB_PATH" < "$migration" 2>/dev/null || true
-        else
-            log_warn "Migration not found: $migration"
-        fi
-    done
 fi
 
-sqlite3 "$DB_PATH" "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;"
+# Check current migration state
+TABLE_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';" 2>/dev/null || echo "0")
+APPLIED_MIGRATIONS=$(sqlite3 "$DB_PATH" "SELECT COALESCE(MAX(version), 0) FROM schema_migrations WHERE dirty = 0;" 2>/dev/null || echo "0")
+
+log_info "Applying database migrations (current state: $TABLE_COUNT tables, last applied: $APPLIED_MIGRATIONS)..."
+
+# Apply each migration if not already applied
+for migration in "$CONFIG_DIR/migrations"/000001_init.up.sql "$CONFIG_DIR/migrations"/000002_settings_and_exports.up.sql; do
+    if [[ ! -f "$migration" ]]; then
+        log_warn "Migration not found: $migration"
+        continue
+    fi
+
+    MIGRATION_NAME=$(basename "$migration")
+    MIGRATION_VERSION="${MIGRATION_NAME:0:6}"  # e.g. 000001
+    MIGRATION_VERSION_NUM=$((10#$MIGRATION_VERSION))  # strip leading zeros
+
+    if [[ $MIGRATION_VERSION_NUM -le $APPLIED_MIGRATIONS ]]; then
+        log_info "Skipping already-applied migration: $MIGRATION_NAME"
+        continue
+    fi
+
+    log_info "Applying $MIGRATION_NAME..."
+    if sqlite3 "$DB_PATH" < "$migration" 2>/dev/null; then
+        # Record in schema_migrations table (idempotent via INSERT OR IGNORE)
+        sqlite3 "$DB_PATH" "INSERT OR IGNORE INTO schema_migrations (version, dirty) VALUES ($MIGRATION_VERSION_NUM, 0);" 2>/dev/null || true
+    else
+        log_warn "Migration $MIGRATION_NAME failed (may be already applied)"
+    fi
+done
+
+sqlite3 "$DB_PATH" "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;" 2>/dev/null || true
 log_info "Database initialized with WAL mode and foreign keys enabled"
 
 step "Setting up systemd services"
