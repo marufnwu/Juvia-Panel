@@ -67,8 +67,8 @@ func TestRateLimiter_Concurrent(t *testing.T) {
 func TestAuthRateLimiter_Limit(t *testing.T) {
 	limiter := NewAuthRateLimiter()
 
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 10; i++ {
 		assert.True(t, limiter.Allow("192.168.1.1"), "request %d should be allowed", i+1)
 	}
-	assert.False(t, limiter.Allow("192.168.1.1"), "6th request should be blocked")
+	assert.False(t, limiter.Allow("192.168.1.1"), "11th request should be blocked")
 }
