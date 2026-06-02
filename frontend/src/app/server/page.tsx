@@ -49,7 +49,7 @@ function formatBytes(bytes: number): string {
   return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB'
 }
 
-import { api, ServerMetrics, ProcessInfo, DiskInfo, NetworkStats } from '@/lib/api'
+import { api, ServerMetrics, ProcessesResponse, DisksResponse, NetworkStats } from '@/lib/api'
 
 export default function ServerPage() {
   const [activeTab, setActiveTab] = useState<TabType>('overview')
@@ -64,13 +64,13 @@ export default function ServerPage() {
     refetchInterval: 30000,
   })
 
-  const { data: processes = [] } = useQuery<ProcessInfo[]>({
+  const { data: processesData } = useQuery<ProcessesResponse>({
     queryKey: ['server-processes'],
     queryFn: () => api.server.processes(),
     refetchInterval: 10000,
   })
 
-  const { data: disks = [] } = useQuery<DiskInfo[]>({
+  const { data: disksData } = useQuery<DisksResponse>({
     queryKey: ['server-disks'],
     queryFn: () => api.server.diskUsage(),
   })
@@ -80,6 +80,9 @@ export default function ServerPage() {
     queryFn: () => api.server.networkStats(),
     refetchInterval: 30000,
   })
+
+  const processes = processesData?.processes || []
+  const disks = disksData?.disks || []
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: Activity },
@@ -113,7 +116,7 @@ export default function ServerPage() {
   ]
 
   const filteredProcesses = processes.filter(p =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    p.command.toLowerCase().includes(searchQuery.toLowerCase()) ||
     p.user.toLowerCase().includes(searchQuery.toLowerCase()) ||
     p.pid.toString().includes(searchQuery)
   )
@@ -325,11 +328,11 @@ export default function ServerPage() {
                   {processes.slice(0, 5).map(proc => (
                     <tr key={proc.pid} className="border-b border-slate-700/50">
                       <td className="py-2 text-white font-mono">{proc.pid}</td>
-                      <td className="py-2 text-white">{proc.name}</td>
-                      <td className="py-2 text-amber-400">{proc.cpu_percent}%</td>
-                      <td className="py-2 text-green-400">{proc.mem_percent}%</td>
+                      <td className="py-2 text-white">{proc.command}</td>
+                      <td className="py-2 text-amber-400">{proc.cpu}%</td>
+                      <td className="py-2 text-green-400">{proc.mem}%</td>
                       <td className="py-2 text-slate-400">{proc.user}</td>
-                      <td className="py-2 text-slate-400 font-mono">{proc.time}</td>
+                      <td className="py-2 text-slate-400">-</td>
                     </tr>
                   ))}
                 </tbody>
@@ -374,15 +377,15 @@ export default function ServerPage() {
                   {filteredProcesses.map(proc => (
                     <tr key={proc.pid} className="border-b border-slate-700/50 hover:bg-slate-700/30">
                       <td className="px-4 py-3 text-white font-mono">{proc.pid}</td>
-                      <td className="px-4 py-3 text-white">{proc.name}</td>
+                      <td className="px-4 py-3 text-white">{proc.command}</td>
                       <td className="px-4 py-3">
-                        <span className={proc.cpu_percent > 50 ? 'text-red-400' : 'text-amber-400'}>
-                          {proc.cpu_percent}%
+                        <span className={parseFloat(proc.cpu) > 50 ? 'text-red-400' : 'text-amber-400'}>
+                          {proc.cpu}%
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-green-400">{proc.mem_percent}%</td>
+                      <td className="px-4 py-3 text-green-400">{proc.mem}%</td>
                       <td className="px-4 py-3 text-slate-400">{proc.user}</td>
-                      <td className="px-4 py-3 text-slate-400 font-mono">{proc.time}</td>
+                      <td className="px-4 py-3 text-slate-400">-</td>
                       <td className="px-4 py-3">
                         <button
                           onClick={() => setKillConfirm(proc.pid)}
@@ -447,16 +450,16 @@ export default function ServerPage() {
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="font-medium text-white">{disk.mount}</h3>
                       <span className="text-sm text-slate-400">
-                        {(disk.used / 1024 / 1024 / 1024).toFixed(1)} GB / {(disk.total / 1024 / 1024 / 1024).toFixed(1)} GB
+                        {disk.used_gb.toFixed(1)} GB / {disk.total_gb.toFixed(1)} GB
                       </span>
                     </div>
                     <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
                       <div
                         className={`h-full transition-all ${
-                          (disk.used / disk.total) > 0.9 ? 'bg-red-500' :
-                          (disk.used / disk.total) > 0.7 ? 'bg-amber-500' : 'bg-green-500'
-                        }`}
-                        style={{ width: `${(disk.used / disk.total) * 100}%` }}
+                        (disk.used_gb / disk.total_gb) > 0.9 ? 'bg-red-500' :
+                        (disk.used_gb / disk.total_gb) > 0.7 ? 'bg-amber-500' : 'bg-green-500'
+                      }`}
+                      style={{ width: `${(disk.used_gb / disk.total_gb) * 100}%` }}
                       />
                     </div>
                   </div>
@@ -490,36 +493,65 @@ export default function ServerPage() {
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-6">
               <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
-                <h3 className="text-sm font-medium text-slate-400 mb-4">Bandwidth</h3>
+                <h3 className="text-sm font-medium text-slate-400 mb-4">Bandwidth (24h)</h3>
                 <div className="flex items-center gap-8">
                   <div>
                     <p className="text-xs text-slate-500 mb-1">Inbound</p>
-                    <p className="text-2xl font-semibold text-green-400">{formatBytes((networkStats?.inbound_mbps ?? 0) * 1024 * 1024)}/s</p>
+                    <p className="text-2xl font-semibold text-green-400">{networkStats?.bandwidth_24h?.inbound_gb?.toFixed(2) ?? '0.00'} GB</p>
                   </div>
                   <div>
                     <p className="text-xs text-slate-500 mb-1">Outbound</p>
-                    <p className="text-2xl font-semibold text-blue-400">{formatBytes((networkStats?.outbound_mbps ?? 0) * 1024 * 1024)}/s</p>
+                    <p className="text-2xl font-semibold text-blue-400">{networkStats?.bandwidth_24h?.outbound_gb?.toFixed(2) ?? '0.00'} GB</p>
                   </div>
                 </div>
               </div>
               <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
-                <h3 className="text-sm font-medium text-slate-400 mb-4">Active Connections</h3>
-                <p className="text-white text-2xl font-semibold">{networkStats?.connections_active ?? 0}</p>
-                <p className="text-sm text-slate-400">connections</p>
+                <h3 className="text-sm font-medium text-slate-400 mb-4">Live Network</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1">Inbound</p>
+                    <p className="text-lg font-semibold text-green-400">{metrics?.network?.inbound_mbps?.toFixed(2) ?? '0.00'} Mbps</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1">Outbound</p>
+                    <p className="text-lg font-semibold text-blue-400">{metrics?.network?.outbound_mbps?.toFixed(2) ?? '0.00'} Mbps</p>
+                  </div>
+                </div>
+                <p className="text-sm text-slate-400 mt-2">{metrics?.network?.connections_active ?? 0} active connections</p>
               </div>
             </div>
 
             <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
-              <h3 className="text-sm font-medium text-slate-400 mb-4">Network Stats</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-slate-500 mb-1">Inbound Rate</p>
-                  <p className="text-lg font-semibold text-green-400">{networkStats?.inbound_mbps?.toFixed(2) ?? '0.00'} Mbps</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500 mb-1">Outbound Rate</p>
-                  <p className="text-lg font-semibold text-blue-400">{networkStats?.outbound_mbps?.toFixed(2) ?? '0.00'} Mbps</p>
-                </div>
+              <h3 className="text-sm font-medium text-slate-400 mb-4">Open Ports</h3>
+              <table className="w-full">
+                <thead>
+                  <tr className="text-left text-xs text-slate-500 border-b border-slate-700">
+                    <th className="pb-2">Port</th>
+                    <th className="pb-2">Protocol</th>
+                    <th className="pb-2">Service</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(networkStats?.open_ports ?? []).map((port, i) => (
+                    <tr key={i} className="border-b border-slate-700/50">
+                      <td className="py-2 text-white font-mono">{port.port}</td>
+                      <td className="py-2 text-slate-400">{port.protocol}</td>
+                      <td className="py-2 text-slate-400">{port.service}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
+              <h3 className="text-sm font-medium text-slate-400 mb-4">Interfaces</h3>
+              <div className="space-y-2">
+                {(networkStats?.interfaces ?? []).map((iface, i) => (
+                  <div key={i} className="flex items-center justify-between">
+                    <span className="text-white">{iface.name}</span>
+                    <span className="text-sm text-slate-400">{iface.ipv4 || iface.ipv6 || '-'}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

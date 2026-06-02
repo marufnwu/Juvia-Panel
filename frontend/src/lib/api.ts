@@ -275,10 +275,10 @@ export const api = {
       request<ServerMetrics>('/server/metrics'),
 
     processes: () =>
-      request<ProcessInfo[]>('/server/processes'),
+      request<ProcessesResponse>('/server/processes'),
 
     diskUsage: () =>
-      request<DiskInfo[]>('/server/disks'),
+      request<DisksResponse>('/server/disks'),
 
     networkStats: () =>
       request<NetworkStats>('/server/network'),
@@ -502,23 +502,48 @@ export interface ServerMetrics {
 
 export interface ProcessInfo {
   pid: number
-  name: string
-  cpu_percent: number
-  mem_percent: number
+  command: string
+  cpu: string
+  mem: string
   user: string
-  time: string
+}
+
+export interface ProcessesResponse {
+  processes: ProcessInfo[]
+  total_count: number
 }
 
 export interface DiskInfo {
+  filesystem: string
   mount: string
-  used: number
-  total: number
+  used_gb: number
+  total_gb: number
+  free_gb: number
+  percent: string
+}
+
+export interface DisksResponse {
+  disks: DiskInfo[]
+  largest_directories: Array<{ path: string; size: string }>
 }
 
 export interface NetworkStats {
-  inbound_mbps: number
-  outbound_mbps: number
-  connections_active: number
+  bandwidth_24h: {
+    inbound_gb: number
+    outbound_gb: number
+  }
+  interfaces: Array<{
+    name: string
+    ipv4: string
+    ipv6: string
+    mac: string
+    state: string
+  }>
+  open_ports: Array<{
+    port: number
+    protocol: string
+    service: string
+  }>
 }
 
 export interface ActivityResponse {
