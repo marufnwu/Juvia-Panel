@@ -1,7 +1,7 @@
 import { CronJobDetailClient } from './CronJobDetailClient'
 
 export function generateStaticParams() {
-  return []
+  return [{ slug: ['_'] }]
 }
 
 export default function CronJobDetailPage() {

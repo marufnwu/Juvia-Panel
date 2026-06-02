@@ -1,7 +1,7 @@
 import { ServiceDetailClient } from './ServiceDetailClient'
 
 export function generateStaticParams() {
-  return []
+  return [{ slug: ['_'] }]
 }
 
 export default function ServiceDetailPage() {
