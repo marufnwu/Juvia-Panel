@@ -2,9 +2,9 @@ package services
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -608,7 +608,9 @@ func generatePassword() string {
 	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*"
 	result := make([]byte, 24)
 	for i := range result {
-		result[i] = chars[rand.Intn(len(chars))]
+		b := make([]byte, 1)
+		rand.Read(b)
+		result[i] = chars[int(b[0])%len(chars)]
 	}
 	return string(result)
 }

@@ -505,25 +505,31 @@ export interface DiskInfo {
 }
 
 export interface NetworkStats {
-  inbound: number
-  outbound: number
+  inbound_mbps: number
+  outbound_mbps: number
+  connections_active: number
 }
 
 export interface ActivityResponse {
-  events: ActivityEvent[]
-  total: number
-  page: number
-  limit: number
+  data: ActivityEvent[]
+  meta: {
+    total: number
+    page: number
+    per_page: number
+    total_pages: number
+  }
 }
 
 export interface ActivityEvent {
   id: string
-  type: string
-  message: string
-  target_type?: 'app' | 'service' | 'server'
-  target_id?: string
-  user?: string
-  ip?: string
+  user_id?: number
+  user_username: string
+  action: string
+  resource_type: string
+  resource_id?: string
+  details?: string
+  ip_address?: string
+  user_agent?: string
   created_at: string
 }
 

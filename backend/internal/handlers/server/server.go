@@ -187,16 +187,17 @@ func (h *Handler) KillProcess(c *gin.Context) {
 	cmd := exec.CommandContext(ctx, "kill", strconv.Itoa(pid))
 	err = cmd.Run()
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "Process terminated.",
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "process_kill_failed",
+			"message": "Failed to terminate process",
 			"pid":     pid,
 		})
-	} else {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "Process terminated.",
-			"pid":     pid,
-		})
+		return
 	}
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Process terminated.",
+		"pid":     pid,
+	})
 }
 
 // GetDiskUsage returns disk usage information.

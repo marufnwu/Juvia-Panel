@@ -70,15 +70,28 @@ func RunMigrations(db *sqlx.DB) error {
 			return fmt.Errorf("failed to read migration file %s: %w", migrationPath, err)
 		}
 
-		if _, err := db.ExecContext(ctx, string(migrationSQL)); err != nil {
+		tx, err := db.BeginTxx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("failed to begin transaction for migration %s: %w", filename, err)
+		}
+
+		if _, err := tx.ExecContext(ctx, string(migrationSQL)); err != nil {
+			tx.Rollback()
 			return fmt.Errorf("failed to execute migration %s: %w", filename, err)
 		}
 
-		// Only record if schema_migrations table exists
 		var count int
-		_ = db.GetContext(ctx, &count, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'")
-		if count > 0 {
-			_, _ = db.ExecContext(ctx, "INSERT INTO schema_migrations (version, dirty) VALUES (?, 0)", version)
+		err = tx.GetContext(ctx, &count, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'")
+		if err == nil && count > 0 {
+			_, err = tx.ExecContext(ctx, "INSERT INTO schema_migrations (version, dirty) VALUES (?, 0)", version)
+			if err != nil {
+				tx.Rollback()
+				return fmt.Errorf("failed to record migration %s: %w", filename, err)
+			}
+		}
+
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit migration %s: %w", filename, err)
 		}
 	}
 

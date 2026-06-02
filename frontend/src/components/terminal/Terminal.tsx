@@ -93,13 +93,9 @@ export function Terminal({ target, onConnect, onDisconnect }: TerminalProps) {
       })
     }
 
-    // Connect to ttyd WebSocket
-    let wsUrl = process.env.NEXT_PUBLIC_TERMINAL_WS_URL
-    if (!wsUrl && typeof window !== 'undefined') {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      wsUrl = `${protocol}//${window.location.host}/terminalws`
-    }
-    const ws = new WebSocket(`${wsUrl}?target=${encodeURIComponent(target)}`)
+    const wsUrlBase = process.env.NEXT_PUBLIC_TERMINAL_WS_URL || `/api/v1/stream`
+    const wsUrl = `${wsUrlBase}${wsUrlBase.includes('?') ? '&' : '?'}target=${encodeURIComponent(target)}`
+    const ws = new WebSocket(wsUrl)
 
     ws.onopen = () => {
       setIsConnected(true)

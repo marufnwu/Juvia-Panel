@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   Server,
   Cpu,
@@ -34,67 +35,6 @@ import {
 
 type TabType = 'overview' | 'processes' | 'disks' | 'network' | 'updates' | 'firewall'
 
-// Mock data
-const mockMetrics = {
-  cpu_percent: 34,
-  cpu_cores: 4,
-  ram_used: 4.8,
-  ram_total: 8,
-  disk_used: 45,
-  disk_total: 100,
-  load_avg: [0.45, 0.52, 0.38] as [number, number, number],
-  uptime: 1234567,
-  network_in: 2.4,
-  network_out: 1.2,
-}
-
-const mockProcesses = [
-  { pid: 1234, name: 'node', cpu_percent: 12, mem_percent: 8, user: 'app_001', time: '2d 04:12' },
-  { pid: 5678, name: 'postgres', cpu_percent: 5, mem_percent: 15, user: 'postgres', time: '14d 00:00' },
-  { pid: 9012, name: 'nginx', cpu_percent: 2, mem_percent: 1, user: 'www-data', time: '14d 00:00' },
-  { pid: 3456, name: 'redis-server', cpu_percent: 1, mem_percent: 3, user: 'redis', time: '14d 00:00' },
-  { pid: 7890, name: 'docker', cpu_percent: 1, mem_percent: 2, user: 'root', time: '14d 00:00' },
-]
-
-const mockDisks = [
-  { mount: '/', used: 45, total: 100 },
-  { mount: '/var/panel/apps', used: 20, total: 50 },
-  { mount: '/var/panel/services', used: 10, total: 20 },
-]
-
-const mockNetwork = {
-  bandwidth_in: 1024,
-  bandwidth_out: 512,
-  connections: [
-    { local: '192.168.1.100:8080', remote: '10.0.0.1:443', state: 'ESTABLISHED' },
-    { local: '192.168.1.100:8080', remote: '10.0.0.2:443', state: 'ESTABLISHED' },
-  ],
-  ports: [
-    { port: 22, protocol: 'TCP', service: 'SSH', status: 'open' },
-    { port: 80, protocol: 'TCP', service: 'HTTP', status: 'open' },
-    { port: 443, protocol: 'TCP', service: 'HTTPS', status: 'open' },
-    { port: 3000, protocol: 'TCP', service: 'api-prod', status: 'open' },
-  ],
-}
-
-const mockUpdates = [
-  { name: 'openssl', version: '3.0.2-0ubuntu1.12', type: 'security', status: 'pending' },
-  { name: 'curl', version: '7.81.0-1ubuntu1.15', type: 'security', status: 'pending' },
-  { name: 'git', version: '1:2.34.1-1ubuntu1.11', type: 'standard', status: 'pending' },
-]
-
-const mockFirewallRules = [
-  { port: 22, protocol: 'TCP', source: 'Anywhere', action: 'ALLOW', app: 'SSH' },
-  { port: 80, protocol: 'TCP', source: 'Anywhere', action: 'ALLOW', app: 'HTTP' },
-  { port: 443, protocol: 'TCP', source: 'Anywhere', action: 'ALLOW', app: 'HTTPS' },
-  { port: 3000, protocol: 'TCP', source: '10.0.0.0/8', action: 'ALLOW', app: 'api-prod' },
-]
-
-const mockRecentBlocks = [
-  { time: '12:34:56', source: '192.168.1.45', port: 22, protocol: 'TCP', reason: 'Brute force' },
-  { time: '11:22:33', source: '10.0.0.99', port: 3389, protocol: 'TCP', reason: 'Port scan' },
-]
-
 function formatUptime(seconds: number): string {
   const days = Math.floor(seconds / 86400)
   const hours = Math.floor((seconds % 86400) / 3600)
@@ -109,20 +49,37 @@ function formatBytes(bytes: number): string {
   return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB'
 }
 
+import { api, ServerMetrics, ProcessInfo, DiskInfo, NetworkStats } from '@/lib/api'
+
 export default function ServerPage() {
   const [activeTab, setActiveTab] = useState<TabType>('overview')
-  const [metrics, setMetrics] = useState(mockMetrics)
-  const [processes, setProcesses] = useState(mockProcesses)
-  const [disks] = useState(mockDisks)
-  const [network] = useState(mockNetwork)
-  const [updates] = useState(mockUpdates)
-  const [firewallRules] = useState(mockFirewallRules)
-  const [recentBlocks] = useState(mockRecentBlocks)
-  const [isLoading, setIsLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [killConfirm, setKillConfirm] = useState<number | null>(null)
   const [timeRange, setTimeRange] = useState<'1h' | '6h' | '24h' | '7d'>('1h')
   const [showAddRule, setShowAddRule] = useState(false)
+
+  const { data: metrics } = useQuery<ServerMetrics>({
+    queryKey: ['server-metrics'],
+    queryFn: () => api.server.metrics(),
+    refetchInterval: 30000,
+  })
+
+  const { data: processes = [] } = useQuery<ProcessInfo[]>({
+    queryKey: ['server-processes'],
+    queryFn: () => api.server.processes(),
+    refetchInterval: 10000,
+  })
+
+  const { data: disks = [] } = useQuery<DiskInfo[]>({
+    queryKey: ['server-disks'],
+    queryFn: () => api.server.diskUsage(),
+  })
+
+  const { data: networkStats } = useQuery<NetworkStats>({
+    queryKey: ['server-network'],
+    queryFn: () => api.server.networkStats(),
+    refetchInterval: 30000,
+  })
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: Activity },
@@ -133,19 +90,26 @@ export default function ServerPage() {
     { id: 'firewall', label: 'Firewall', icon: Shield },
   ]
 
+  const cpuPercent = metrics?.cpu?.current_percent ?? 0
+  const cpuCores = metrics?.cpu?.per_core?.length ?? 0
+  const ramUsed = metrics?.memory?.current_mb ?? 0
+  const ramTotal = metrics?.memory?.total_mb ?? 0
+  const diskUsed = metrics?.disk?.used_gb ?? 0
+  const diskTotal = metrics?.disk?.total_gb ?? 0
+
   const cpuData = [
-    { name: 'Used', value: metrics.cpu_percent },
-    { name: 'Free', value: 100 - metrics.cpu_percent },
+    { name: 'Used', value: cpuPercent },
+    { name: 'Free', value: 100 - cpuPercent },
   ]
 
   const ramData = [
-    { name: 'Used', value: metrics.ram_used },
-    { name: 'Free', value: metrics.ram_total - metrics.ram_used },
+    { name: 'Used', value: ramUsed / 1024 },
+    { name: 'Free', value: (ramTotal - ramUsed) / 1024 },
   ]
 
   const diskData = [
-    { name: 'Used', value: metrics.disk_used },
-    { name: 'Free', value: metrics.disk_total - metrics.disk_used },
+    { name: 'Used', value: diskUsed },
+    { name: 'Free', value: diskTotal - diskUsed },
   ]
 
   const filteredProcesses = processes.filter(p =>
@@ -156,14 +120,10 @@ export default function ServerPage() {
 
   const handleKillProcess = useCallback((pid: number) => {
     console.log('Killing process:', pid)
-    setProcesses(prev => prev.filter(p => p.pid !== pid))
     setKillConfirm(null)
   }, [])
 
-  const handleInstallUpdates = useCallback(async () => {
-    setIsLoading(true)
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    setIsLoading(false)
+  const handleRefresh = useCallback(() => {
   }, [])
 
   return (
@@ -178,21 +138,21 @@ export default function ServerPage() {
             <div>
               <h1 className="text-xl font-semibold text-white">Server</h1>
               <p className="text-sm text-slate-400">
-                my-vps-01 • Ubuntu 24.04 LTS • {metrics.cpu_cores} CPU • {metrics.ram_total} GB RAM
+                my-vps-01 • Ubuntu 24.04 LTS • {cpuCores} CPU • {(ramTotal / 1024).toFixed(0)} GB RAM
               </p>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-4">
             <div className="text-right">
               <p className="text-sm text-slate-400">Uptime</p>
-              <p className="text-white font-medium">{formatUptime(metrics.uptime)}</p>
+              <p className="text-white font-medium">-</p>
             </div>
             <button
-              onClick={() => setIsLoading(true)}
+              onClick={handleRefresh}
               className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
             >
-              <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className="w-5 h-5" />
             </button>
           </div>
         </div>
@@ -269,8 +229,8 @@ export default function ServerPage() {
                     </PieChart>
                   </ResponsiveContainer>
                   <div>
-                    <div className="text-3xl font-semibold text-white">{metrics.cpu_percent}%</div>
-                    <div className="text-sm text-slate-400">{metrics.cpu_cores} cores</div>
+                    <div className="text-3xl font-semibold text-white">{cpuPercent}%</div>
+                    <div className="text-sm text-slate-400">{cpuCores} cores</div>
                   </div>
                 </div>
               </div>
@@ -295,8 +255,8 @@ export default function ServerPage() {
                     </PieChart>
                   </ResponsiveContainer>
                   <div>
-                    <div className="text-3xl font-semibold text-white">{metrics.ram_used.toFixed(1)} GB</div>
-                    <div className="text-sm text-slate-400">of {metrics.ram_total} GB</div>
+                    <div className="text-3xl font-semibold text-white">{(ramUsed / 1024).toFixed(1)} GB</div>
+                    <div className="text-sm text-slate-400">of {(ramTotal / 1024).toFixed(0)} GB</div>
                   </div>
                 </div>
               </div>
@@ -321,8 +281,8 @@ export default function ServerPage() {
                     </PieChart>
                   </ResponsiveContainer>
                   <div>
-                    <div className="text-3xl font-semibold text-white">{metrics.disk_used} GB</div>
-                    <div className="text-sm text-slate-400">of {metrics.disk_total} GB</div>
+                    <div className="text-3xl font-semibold text-white">{diskUsed.toFixed(0)} GB</div>
+                    <div className="text-sm text-slate-400">of {diskTotal.toFixed(0)} GB</div>
                   </div>
                 </div>
               </div>
@@ -334,15 +294,15 @@ export default function ServerPage() {
               <div className="flex items-center gap-8">
                 <div>
                   <p className="text-xs text-slate-500 mb-1">1 min</p>
-                  <p className="text-xl font-semibold text-white">{metrics.load_avg[0].toFixed(2)}</p>
+                  <p className="text-xl font-semibold text-white">{(metrics?.load?.['1min'] ?? 0).toFixed(2)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-slate-500 mb-1">5 min</p>
-                  <p className="text-xl font-semibold text-white">{metrics.load_avg[1].toFixed(2)}</p>
+                  <p className="text-xl font-semibold text-white">{(metrics?.load?.['5min'] ?? 0).toFixed(2)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-slate-500 mb-1">15 min</p>
-                  <p className="text-xl font-semibold text-white">{metrics.load_avg[2].toFixed(2)}</p>
+                  <p className="text-xl font-semibold text-white">{(metrics?.load?.['15min'] ?? 0).toFixed(2)}</p>
                 </div>
               </div>
             </div>
@@ -362,7 +322,7 @@ export default function ServerPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {mockProcesses.slice(0, 5).map(proc => (
+                  {processes.slice(0, 5).map(proc => (
                     <tr key={proc.pid} className="border-b border-slate-700/50">
                       <td className="py-2 text-white font-mono">{proc.pid}</td>
                       <td className="py-2 text-white">{proc.name}</td>
@@ -477,25 +437,31 @@ export default function ServerPage() {
         {activeTab === 'disks' && (
           <div className="space-y-6">
             <div className="grid gap-4">
-              {disks.map(disk => (
-                <div key={disk.mount} className="bg-slate-800 rounded-lg border border-slate-700 p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-medium text-white">{disk.mount}</h3>
-                    <span className="text-sm text-slate-400">
-                      {disk.used} GB / {disk.total} GB
-                    </span>
-                  </div>
-                  <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full transition-all ${
-                        (disk.used / disk.total) > 0.9 ? 'bg-red-500' :
-                        (disk.used / disk.total) > 0.7 ? 'bg-amber-500' : 'bg-green-500'
-                      }`}
-                      style={{ width: `${(disk.used / disk.total) * 100}%` }}
-                    />
-                  </div>
+              {disks.length === 0 ? (
+                <div className="bg-slate-800 rounded-lg border border-slate-700 p-6 text-center text-slate-400">
+                  No disk data available
                 </div>
-              ))}
+              ) : (
+                disks.map(disk => (
+                  <div key={disk.mount} className="bg-slate-800 rounded-lg border border-slate-700 p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-medium text-white">{disk.mount}</h3>
+                      <span className="text-sm text-slate-400">
+                        {(disk.used / 1024 / 1024 / 1024).toFixed(1)} GB / {(disk.total / 1024 / 1024 / 1024).toFixed(1)} GB
+                      </span>
+                    </div>
+                    <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all ${
+                          (disk.used / disk.total) > 0.9 ? 'bg-red-500' :
+                          (disk.used / disk.total) > 0.7 ? 'bg-amber-500' : 'bg-green-500'
+                        }`}
+                        style={{ width: `${(disk.used / disk.total) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
 
             <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
@@ -528,51 +494,33 @@ export default function ServerPage() {
                 <div className="flex items-center gap-8">
                   <div>
                     <p className="text-xs text-slate-500 mb-1">Inbound</p>
-                    <p className="text-2xl font-semibold text-green-400">{formatBytes(network.bandwidth_in)}/s</p>
+                    <p className="text-2xl font-semibold text-green-400">{formatBytes((networkStats?.inbound_mbps ?? 0) * 1024 * 1024)}/s</p>
                   </div>
                   <div>
                     <p className="text-xs text-slate-500 mb-1">Outbound</p>
-                    <p className="text-2xl font-semibold text-blue-400">{formatBytes(network.bandwidth_out)}/s</p>
+                    <p className="text-2xl font-semibold text-blue-400">{formatBytes((networkStats?.outbound_mbps ?? 0) * 1024 * 1024)}/s</p>
                   </div>
                 </div>
               </div>
               <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
-                <h3 className="text-sm font-medium text-slate-400 mb-4">Open Ports</h3>
-                <div className="space-y-2">
-                  {mockNetwork.ports.slice(0, 4).map(port => (
-                    <div key={port.port} className="flex items-center justify-between">
-                      <span className="text-white">{port.port}/{port.protocol}</span>
-                      <span className="text-sm text-slate-400">{port.service}</span>
-                    </div>
-                  ))}
-                </div>
+                <h3 className="text-sm font-medium text-slate-400 mb-4">Active Connections</h3>
+                <p className="text-white text-2xl font-semibold">{networkStats?.connections_active ?? 0}</p>
+                <p className="text-sm text-slate-400">connections</p>
               </div>
             </div>
 
             <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
-              <h3 className="text-sm font-medium text-slate-400 mb-4">Active Connections</h3>
-              <table className="w-full">
-                <thead>
-                  <tr className="text-left text-xs text-slate-500 border-b border-slate-700">
-                    <th className="pb-2">Local</th>
-                    <th className="pb-2">Remote</th>
-                    <th className="pb-2">State</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {mockNetwork.connections.map((conn, i) => (
-                    <tr key={i} className="border-b border-slate-700/50">
-                      <td className="py-2 text-white font-mono text-sm">{conn.local}</td>
-                      <td className="py-2 text-white font-mono text-sm">{conn.remote}</td>
-                      <td className="py-2">
-                        <span className="px-2 py-0.5 text-xs bg-green-500/20 text-green-400 rounded">
-                          {conn.state}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <h3 className="text-sm font-medium text-slate-400 mb-4">Network Stats</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">Inbound Rate</p>
+                  <p className="text-lg font-semibold text-green-400">{networkStats?.inbound_mbps?.toFixed(2) ?? '0.00'} Mbps</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">Outbound Rate</p>
+                  <p className="text-lg font-semibold text-blue-400">{networkStats?.outbound_mbps?.toFixed(2) ?? '0.00'} Mbps</p>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -582,63 +530,24 @@ export default function ServerPage() {
             <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h3 className="font-medium text-white">Available Updates</h3>
-                  <p className="text-sm text-slate-400">{updates.length} updates available</p>
+                  <h3 className="font-medium text-white">System Updates</h3>
+                  <p className="text-sm text-slate-400">Check for available system updates</p>
                 </div>
                 <button
-                  onClick={handleInstallUpdates}
-                  disabled={isLoading}
-                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors"
                 >
-                  {isLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Zap className="w-4 h-4" />
-                  )}
-                  Install Security Updates
+                  <Zap className="w-4 h-4" />
+                  Check for Updates
                 </button>
               </div>
-
-              <table className="w-full">
-                <thead>
-                  <tr className="text-left text-xs text-slate-500 border-b border-slate-700">
-                    <th className="pb-2">Package</th>
-                    <th className="pb-2">Version</th>
-                    <th className="pb-2">Type</th>
-                    <th className="pb-2">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {updates.map(update => (
-                    <tr key={update.name} className="border-b border-slate-700/50">
-                      <td className="py-3 text-white">{update.name}</td>
-                      <td className="py-3 text-slate-400 font-mono text-sm">{update.version}</td>
-                      <td className="py-3">
-                        <span className={`px-2 py-0.5 text-xs rounded ${
-                          update.type === 'security'
-                            ? 'bg-red-500/20 text-red-400'
-                            : 'bg-blue-500/20 text-blue-400'
-                        }`}>
-                          {update.type}
-                        </span>
-                      </td>
-                      <td className="py-3">
-                        <span className="px-2 py-0.5 text-xs bg-amber-500/20 text-amber-400 rounded">
-                          {update.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
 
             <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
               <div className="flex items-center gap-3 mb-4">
                 <CheckCircle className="w-5 h-5 text-green-500" />
                 <div>
-                  <h3 className="font-medium text-white">Panel is up to date</h3>
-                  <p className="text-sm text-slate-400">Version 1.0.0</p>
+                  <h3 className="font-medium text-white">System Up to Date</h3>
+                  <p className="text-sm text-slate-400">No security updates available</p>
                 </div>
               </div>
             </div>
@@ -674,57 +583,22 @@ export default function ServerPage() {
                     <th className="px-4 py-3 font-medium">Protocol</th>
                     <th className="px-4 py-3 font-medium">Source</th>
                     <th className="px-4 py-3 font-medium">Action</th>
-                    <th className="px-4 py-3 font-medium">App</th>
                     <th className="px-4 py-3 font-medium"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {firewallRules.map((rule, i) => (
-                    <tr key={i} className="border-b border-slate-700/50 hover:bg-slate-700/30">
-                      <td className="px-4 py-3 text-white font-mono">{rule.port}</td>
-                      <td className="px-4 py-3 text-slate-400">{rule.protocol}</td>
-                      <td className="px-4 py-3 text-slate-400">{rule.source}</td>
-                      <td className="px-4 py-3">
-                        <span className="px-2 py-0.5 text-xs bg-green-500/20 text-green-400 rounded">
-                          {rule.action}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-400">{rule.app}</td>
-                      <td className="px-4 py-3">
-                        <button className="p-1 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors">
-                          <X className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  <tr>
+                    <td className="px-4 py-3 text-slate-400 text-center" colSpan={5}>
+                      Firewall rules managed via dedicated API
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>
 
             <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
               <h3 className="font-medium text-white mb-4">Recent Blocks (Last 24h)</h3>
-              <table className="w-full">
-                <thead>
-                  <tr className="text-left text-xs text-slate-500 border-b border-slate-700">
-                    <th className="pb-2">Time</th>
-                    <th className="pb-2">Source IP</th>
-                    <th className="pb-2">Port</th>
-                    <th className="pb-2">Protocol</th>
-                    <th className="pb-2">Reason</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentBlocks.map((block, i) => (
-                    <tr key={i} className="border-b border-slate-700/50">
-                      <td className="py-2 text-white font-mono">{block.time}</td>
-                      <td className="py-2 text-red-400 font-mono">{block.source}</td>
-                      <td className="py-2 text-white">{block.port}</td>
-                      <td className="py-2 text-slate-400">{block.protocol}</td>
-                      <td className="py-2 text-amber-400">{block.reason}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <p className="text-slate-400">No recent blocks</p>
             </div>
 
             {/* Add Rule Modal */}

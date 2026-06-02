@@ -308,7 +308,7 @@ export default function DashboardPage() {
 
   const apps = appsData?.data || []
   const services = servicesData?.data || []
-  const activity = activityData?.events || []
+  const activity = activityData?.data || []
 
   const metricsDisplay = metrics || {
     cpu: { current_percent: 0, per_core: [], history: [] },
@@ -561,14 +561,14 @@ export default function DashboardPage() {
                 <div key={event.id} className="p-4">
                   <div className="flex items-start gap-3">
                     <div className={`mt-0.5 p-1 rounded ${
-                      event.type === 'deployment' && event.message.includes('failed')
+                      event.action === 'deployment' && event.action.includes('failed')
                         ? 'bg-danger-500/10 text-danger-400'
-                        : event.type === 'deployment'
+                        : event.action === 'deployment'
                         ? 'bg-success-500/10 text-success-400'
                         : 'bg-slate-700 text-slate-400'
                     }`}>
-                      {event.type === 'deployment' ? (
-                        event.message.includes('failed') ? (
+                      {event.action === 'deployment' ? (
+                        event.action.includes('failed') ? (
                           <XCircle className="w-4 h-4" />
                         ) : (
                           <CheckCircle className="w-4 h-4" />
@@ -578,9 +578,9 @@ export default function DashboardPage() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-white">{event.message}</p>
+                      <p className="text-sm text-white">{event.action}</p>
                       <div className="flex items-center gap-2 mt-1 text-xs text-slate-400">
-                        {event.user && <span>{event.user}</span>}
+                        {event.user_username && <span>{event.user_username}</span>}
                         <span>•</span>
                         <span>{timeAgo(event.created_at)}</span>
                       </div>

@@ -9,6 +9,10 @@ agent.exe
 api.exe
 panel-agent.exe
 panel-api.exe
+panel-api
+panel-agent
+juvia-api
+juvia-agent
 
 # Go workspace
 go.work

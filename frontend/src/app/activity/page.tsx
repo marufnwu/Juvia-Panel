@@ -88,20 +88,19 @@ export default function ActivityPage() {
     },
   })
 
-  const events = data?.events || []
-  const totalPages = Math.ceil((data?.total || 0) / 50)
+  const events = data?.data || []
+  const total = data?.meta?.total || 0
+  const totalPages = Math.ceil(total / 50)
 
   const filteredEvents = events.filter(event => {
-    // Type filter
     if (filter !== 'all') {
       const filterPrefix = filter === 'app' ? 'app' : filter === 'service' ? 'service' : 'user'
-      if (!event.type.startsWith(filterPrefix)) return false
+      if (!event.action.startsWith(filterPrefix)) return false
     }
-    // Search filter
     if (search) {
       const searchLower = search.toLowerCase()
-      return event.message.toLowerCase().includes(searchLower) ||
-             event.user?.toLowerCase().includes(searchLower)
+      return event.action.toLowerCase().includes(searchLower) ||
+             event.user_username.toLowerCase().includes(searchLower)
     }
     return true
   })
@@ -110,10 +109,10 @@ export default function ActivityPage() {
     const headers = ['Time', 'User', 'Action', 'Target', 'IP']
     const rows = filteredEvents.map(event => [
       event.created_at,
-      event.user || 'system',
-      event.message,
-      event.target_id || '-',
-      event.ip || '-',
+      event.user_username || 'system',
+      event.action,
+      event.resource_id || '-',
+      event.ip_address || '-',
     ])
     const csv = [headers.join(','), ...rows.map(row => row.join(','))].join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
@@ -230,8 +229,8 @@ export default function ActivityPage() {
               </thead>
               <tbody className="divide-y divide-slate-700">
                 {filteredEvents.map((event) => {
-                  const Icon = getEventIcon(event.type)
-                  const iconColor = getEventColor(event.type)
+                  const Icon = getEventIcon(event.action)
+                  const iconColor = getEventColor(event.action)
                   return (
                     <tr key={event.id} className="hover:bg-slate-700/50 transition-colors">
                       <td className="px-4 py-4">
@@ -243,18 +242,18 @@ export default function ActivityPage() {
                         </div>
                       </td>
                       <td className="px-4 py-4">
-                        <span className="text-sm text-white">{event.user || 'system'}</span>
+                        <span className="text-sm text-white">{event.user_username || 'system'}</span>
                       </td>
                       <td className="px-4 py-4">
-                        <span className="text-sm text-slate-300">{event.message}</span>
+                        <span className="text-sm text-slate-300">{event.action}</span>
                       </td>
                       <td className="px-4 py-4">
                         <span className="text-sm text-slate-400">
-                          {event.target_type ? `${event.target_type}/${event.target_id}` : '—'}
+                          {event.resource_type ? `${event.resource_type}/${event.resource_id || ''}` : '—'}
                         </span>
                       </td>
                       <td className="px-4 py-4">
-                        <span className="text-sm text-slate-500">{event.ip || '—'}</span>
+                        <span className="text-sm text-slate-500">{event.ip_address || '—'}</span>
                       </td>
                     </tr>
                   )
@@ -266,7 +265,7 @@ export default function ActivityPage() {
             {totalPages > 1 && (
               <div className="flex items-center justify-between px-4 py-3 border-t border-slate-700">
                 <p className="text-sm text-slate-400">
-                  Showing {filteredEvents.length} of {data?.total} activities
+                  Showing {filteredEvents.length} of {total} activities
                 </p>
                 <div className="flex items-center gap-2">
                   <button
