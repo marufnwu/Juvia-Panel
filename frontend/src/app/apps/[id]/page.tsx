@@ -36,7 +36,7 @@ import {
 import { api, ApiError } from '@/lib/api'
 import { useToastStore } from '@/stores'
 
-type AppStatus = 'running' | 'stopped' | 'deploying' | 'failed'
+type AppStatus = 'running' | 'stopped' | 'deploying' | 'failed' | 'restarting'
 
 interface AppDetail {
   id: string
@@ -107,7 +107,7 @@ interface EnvVariable {
 interface Deployment {
   id: string
   app_id: string
-  status: 'pending' | 'building' | 'deploying' | 'success' | 'failed'
+  status: 'queued' | 'in_progress' | 'success' | 'failed' | 'cancelled'
   commit?: string
   commit_message?: string
   commit_author?: string
@@ -125,6 +125,7 @@ const statusColors: Record<AppStatus, { bg: string; text: string; dot: string }>
   stopped: { bg: 'bg-slate-500/10', text: 'text-slate-400', dot: 'bg-slate-400' },
   deploying: { bg: 'bg-amber-500/10', text: 'text-amber-500', dot: 'bg-amber-500' },
   failed: { bg: 'bg-red-500/10', text: 'text-red-500', dot: 'bg-red-500' },
+  restarting: { bg: 'bg-blue-500/10', text: 'text-blue-500', dot: 'bg-blue-500' },
 }
 
 function formatRelativeTime(dateString?: string): string {
@@ -159,11 +160,10 @@ export default function AppDetailPage() {
   const [deleteConfirmName, setDeleteConfirmName] = useState('')
   const [visibleSecrets, setVisibleSecrets] = useState<Set<string>>(new Set())
   const [envVars, setEnvVars] = useState<EnvVariable[]>([])
+  const [deletedEnvKeys, setDeletedEnvKeys] = useState<string[]>([])
   const [newEnvKey, setNewEnvKey] = useState('')
   const [newEnvValue, setNewEnvValue] = useState('')
   const [newEnvSecret, setNewEnvSecret] = useState(false)
-  // Map secret to secret for API compatibility
-  const envVarsWithSecret = envVars.map(v => ({ ...v, secret: v.secret || (v as unknown as { secret?: boolean }).secret }))
   const [expandedDeployment, setExpandedDeployment] = useState<string | null>(null)
   const [deploymentLogs, setDeploymentLogs] = useState<Record<string, string>>( {})
 
@@ -176,7 +176,10 @@ export default function AppDetailPage() {
   // Fetch deployments
   const { data: deployments, isLoading: deploymentsLoading } = useQuery({
     queryKey: ['app-deployments', appId],
-    queryFn: () => api.apps.getDeployments(appId) as unknown as Promise<Deployment[]>,
+    queryFn: async () => {
+      const response = await api.apps.getDeployments(appId)
+      return (response as unknown as { data: Deployment[] }).data || []
+    },
   })
 
   // Fetch environment variables
@@ -215,6 +218,18 @@ export default function AppDetailPage() {
     },
   })
 
+  // Start mutation
+  const startMutation = useMutation({
+    mutationFn: () => api.apps.start(appId),
+    onSuccess: () => {
+      addToast({ type: 'success', title: 'App started', message: 'Your app is starting.' })
+      queryClient.invalidateQueries({ queryKey: ['app', appId] })
+    },
+    onError: (error: ApiError) => {
+      addToast({ type: 'error', title: 'Start failed', message: error.message })
+    },
+  })
+
   // Deploy mutation
   const deployMutation = useMutation({
     mutationFn: () => api.apps.deploy(appId),
@@ -230,7 +245,8 @@ export default function AppDetailPage() {
 
   // Update env mutation
   const updateEnvMutation = useMutation({
-    mutationFn: (variables: EnvVariable[]) => api.apps.updateEnv(appId, variables),
+    mutationFn: ({ variables, deleteKeys }: { variables: EnvVariable[]; deleteKeys: string[] }) =>
+      api.apps.updateEnv(appId, variables, deleteKeys),
     onSuccess: () => {
       addToast({ type: 'success', title: 'Environment updated', message: 'Restart app to apply changes.' })
       queryClient.invalidateQueries({ queryKey: ['app-env', appId] })
@@ -275,7 +291,9 @@ export default function AppDetailPage() {
       value: newEnvValue,
       secret: newEnvSecret,
     }
-    updateEnvMutation.mutate([...envVars, newVar])
+    const updated = [...envVars, newVar]
+    setEnvVars(updated)
+    updateEnvMutation.mutate({ variables: updated, deleteKeys: deletedEnvKeys })
     setNewEnvKey('')
     setNewEnvValue('')
     setNewEnvSecret(false)
@@ -283,7 +301,14 @@ export default function AppDetailPage() {
 
   const handleDeleteEnvVar = (key: string) => {
     const updated = envVars.filter(v => v.key !== key)
-    updateEnvMutation.mutate(updated)
+    setEnvVars(updated)
+    const newDeletedKeys = [...deletedEnvKeys, key]
+    setDeletedEnvKeys(newDeletedKeys)
+    updateEnvMutation.mutate({ variables: updated, deleteKeys: newDeletedKeys }, {
+      onSuccess: () => {
+        setDeletedEnvKeys([])
+      }
+    })
   }
 
   const fetchDeploymentLogs = async (deploymentId: string) => {
@@ -332,7 +357,7 @@ export default function AppDetailPage() {
             <span className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[app.status]?.bg} ${statusColors[app.status]?.text}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${statusColors[app.status]?.dot}`} />
               {app.status}
-              {app.status === 'deploying' && <RefreshCw className="w-3 h-3 animate-spin ml-1" />}
+              {(app.status === 'deploying' || app.status === 'restarting') && <RefreshCw className="w-3 h-3 animate-spin ml-1" />}
             </span>
           </div>
           <p className="text-sm text-slate-400 mt-1">
@@ -343,10 +368,10 @@ export default function AppDetailPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => deployMutation.mutate()}
-            disabled={app.status === 'deploying'}
+            disabled={app.status === 'deploying' || app.status === 'restarting'}
             className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-md text-sm font-medium transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={`w-4 h-4 ${app.status === 'deploying' ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${(app.status === 'deploying' || app.status === 'restarting') ? 'animate-spin' : ''}`} />
             Deploy
           </button>
           {app.status === 'running' ? (
@@ -359,6 +384,7 @@ export default function AppDetailPage() {
             </button>
           ) : app.status === 'stopped' ? (
             <button
+              onClick={() => startMutation.mutate()}
               className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-md transition-colors"
               title="Start"
             >
@@ -579,13 +605,13 @@ export default function AppDetailPage() {
                       <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${
                         deployment.status === 'success' ? 'text-green-400' :
                         deployment.status === 'failed' ? 'text-red-400' :
-                        deployment.status === 'building' || deployment.status === 'deploying' ? 'text-amber-400' :
+                        deployment.status === 'in_progress' || deployment.status === 'queued' ? 'text-amber-400' :
                         'text-slate-400'
                       }`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${
                           deployment.status === 'success' ? 'bg-green-400' :
                           deployment.status === 'failed' ? 'bg-red-400' :
-                          deployment.status === 'building' || deployment.status === 'deploying' ? 'bg-amber-400 animate-pulse' :
+                          deployment.status === 'in_progress' || deployment.status === 'queued' ? 'bg-amber-400 animate-pulse' :
                           'bg-slate-400'
                         }`} />
                         {deployment.status}

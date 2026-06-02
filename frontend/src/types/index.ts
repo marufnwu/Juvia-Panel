@@ -4,14 +4,14 @@
 export type UserRole = 'owner' | 'admin' | 'developer' | 'viewer'
 
 // App statuses
-export type AppStatus = 'running' | 'stopped' | 'deploying' | 'failed'
+export type AppStatus = 'running' | 'stopped' | 'deploying' | 'failed' | 'restarting'
 
 // Service types
 export type ServiceType = 'postgresql' | 'mysql' | 'redis' | 'mongodb' | 'minio' | 'custom'
 export type ServiceStatus = 'running' | 'stopped' | 'starting' | 'failed'
 
 // Deployment statuses
-export type DeploymentStatus = 'pending' | 'building' | 'deploying' | 'success' | 'failed'
+export type DeploymentStatus = 'queued' | 'in_progress' | 'success' | 'failed' | 'cancelled'
 
 // Build strategies
 export type BuildStrategy = 'auto' | 'nixpacks' | 'dockerfile' | 'static'

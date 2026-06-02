@@ -104,9 +104,8 @@ export default function ServicesPage() {
     queryFn: async () => {
       const response = await api.services.list({
         page,
-        limit: 20,
+        per_page: 20,
         type: typeFilter !== 'all' ? typeFilter : undefined,
-        // Note: status filter would need API support
       })
       return response as unknown as ServicesListResponse
     },

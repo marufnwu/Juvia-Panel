@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -515,12 +516,15 @@ func (h *Handler) CreateApp(c *gin.Context) {
 			CreatedAt:  now,
 		}
 		if err := h.repo.CreateAppDomain(ctx, domain); err != nil {
-			// Log error but don't fail
+			log.Printf("Failed to create app domain: %v", err)
 		}
 	}
 	
 	// Create deployment record
-	deploymentID, _ := generateID("dep_")
+	deploymentID, err := generateID("dep_")
+	if err != nil {
+		log.Printf("Failed to generate deployment ID: %v", err)
+	}
 	deployment := &database.Deployment{
 		ID:          deploymentID,
 		AppID:       appID,
@@ -537,8 +541,29 @@ func (h *Handler) CreateApp(c *gin.Context) {
 		CompletedAt: nil,
 		CreatedAt:  now,
 	}
-	h.repo.CreateDeployment(ctx, deployment)
-	
+	if err := h.repo.CreateDeployment(ctx, deployment); err != nil {
+		log.Printf("Failed to create deployment: %v", err)
+	}
+
+	// Create environment variables if provided
+	if req.Environment != nil && len(req.Environment) > 0 {
+		envVars, err := parseEnvVars(req.Environment)
+		if err == nil {
+			for _, envVar := range envVars {
+				envVar.AppID = appID
+				if envVar.IsSecret && h.config.MasterKey != "" {
+					encrypted, err := encryptValue(envVar.Value, h.config.MasterKey)
+					if err == nil {
+						envVar.Value = encrypted
+					}
+				}
+				h.repo.InsertEnvVar(ctx, &envVar)
+			}
+		} else {
+			log.Printf("Failed to parse environment variables: %v", err)
+		}
+	}
+
 	c.JSON(http.StatusCreated, gin.H{
 		"id":            appID,
 		"name":          req.Name,
@@ -698,6 +723,15 @@ func (h *Handler) DeleteApp(c *gin.Context) {
 		}
 	}
 	
+	// Stop and remove container if running
+	if app.ContainerID != nil && *app.ContainerID != "" {
+		go func() {
+			bgCtx := context.Background()
+			h.agent.Stop(bgCtx, *app.ContainerID, 10)
+			h.agent.Remove(bgCtx, *app.ContainerID, true)
+		}()
+	}
+
 	// Delete app (cascade will handle related records)
 	if err := h.repo.DeleteApp(ctx, appID); err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
@@ -762,10 +796,18 @@ func (h *Handler) RestartApp(c *gin.Context) {
 	
 	// Restart container via agent
 	go func() {
+		bgCtx := context.Background()
 		if app.ContainerID != nil && *app.ContainerID != "" {
-			h.agent.Restart(ctx, *app.ContainerID)
+			if err := h.agent.Restart(bgCtx, *app.ContainerID); err != nil {
+				log.Printf("Failed to restart container %s: %v", *app.ContainerID, err)
+				h.repo.UpdateAppStatus(bgCtx, appID, "failed")
+				if h.wsHub != nil {
+					websocket.EmitAppStatusChanged(h.wsHub, appID, "restarting", "failed", app.HealthStatus)
+				}
+				return
+			}
 		}
-		h.repo.UpdateAppStatus(context.Background(), appID, "running")
+		h.repo.UpdateAppStatus(bgCtx, appID, "running")
 		if h.wsHub != nil {
 			websocket.EmitAppStatusChanged(h.wsHub, appID, "restarting", "running", "healthy")
 		}
@@ -805,8 +847,16 @@ func (h *Handler) StopApp(c *gin.Context) {
 	// Stop container via agent if running
 	if app.ContainerID != nil && *app.ContainerID != "" {
 		go func() {
-			h.agent.Stop(ctx, *app.ContainerID, 10)
-			h.repo.UpdateAppStatus(context.Background(), appID, "stopped")
+			bgCtx := context.Background()
+			if err := h.agent.Stop(bgCtx, *app.ContainerID, 10); err != nil {
+				log.Printf("Failed to stop container %s: %v", *app.ContainerID, err)
+				h.repo.UpdateAppStatus(bgCtx, appID, "failed")
+				if h.wsHub != nil {
+					websocket.EmitAppStatusChanged(h.wsHub, appID, app.Status, "failed", app.HealthStatus)
+				}
+				return
+			}
+			h.repo.UpdateAppStatus(bgCtx, appID, "stopped")
 			if h.wsHub != nil {
 				websocket.EmitAppStatusChanged(h.wsHub, appID, app.Status, "stopped", app.HealthStatus)
 			}
@@ -1661,7 +1711,15 @@ func (h *Handler) TriggerDeployment(c *gin.Context) {
 	}
 	
 	// Create deployment record
-	deploymentID, _ := generateID("dep_")
+	deploymentID, err := generateID("dep_")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:     "internal_error",
+			Message:   "Failed to generate deployment ID",
+			RequestID: requestID,
+		})
+		return
+	}
 	userID := c.GetInt("user_id")
 	now := time.Now()
 	
@@ -1948,7 +2006,15 @@ func (h *Handler) Rollback(c *gin.Context) {
 	}
 	
 	// Create new deployment for rollback
-	newDeploymentID, _ := generateID("dep_")
+	newDeploymentID, err := generateID("dep_")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:     "internal_error",
+			Message:   "Failed to generate deployment ID",
+			RequestID: requestID,
+		})
+		return
+	}
 	userID := c.GetInt("user_id")
 	now := time.Now()
 	

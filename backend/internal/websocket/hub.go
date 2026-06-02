@@ -54,7 +54,7 @@ type Hub struct {
 type Event struct {
 	Type      string      `json:"type"`
 	Timestamp string      `json:"timestamp"`
-	Data      interface{} `json:"data,omitempty"`
+	Data      interface{} `json:"payload,omitempty"`
 }
 
 // Client represents a WebSocket client connection

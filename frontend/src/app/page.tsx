@@ -203,6 +203,7 @@ function AppStatusBadge({ status }: { status: App['status'] }) {
     stopped: { color: 'bg-slate-500', text: 'text-slate-400', label: 'Stopped' },
     deploying: { color: 'bg-warning-500', text: 'text-warning-400', label: 'Deploying' },
     failed: { color: 'bg-danger-500', text: 'text-danger-400', label: 'Failed' },
+    restarting: { color: 'bg-blue-500', text: 'text-blue-400', label: 'Restarting' },
   }[status] || { color: 'bg-slate-500', text: 'text-slate-400', label: status }
 
   return (
@@ -277,17 +278,17 @@ export default function DashboardPage() {
 
   const { data: appsData, isLoading: appsLoading, error: appsError } = useQuery({
     queryKey: ['apps'],
-    queryFn: () => api.apps.list({ limit: 10 }),
+    queryFn: () => api.apps.list({ per_page: 10 }),
   })
 
   const { data: servicesData, isLoading: servicesLoading, error: servicesError } = useQuery({
     queryKey: ['services'],
-    queryFn: () => api.services.list({ limit: 10 }),
+    queryFn: () => api.services.list({ per_page: 10 }),
   })
 
   const { data: activityData, isLoading: activityLoading, error: activityError } = useQuery({
     queryKey: ['activity'],
-    queryFn: () => api.activity.list({ limit: 5 }),
+    queryFn: () => api.activity.list({ per_page: 5 }),
   })
 
   useEffect(() => {

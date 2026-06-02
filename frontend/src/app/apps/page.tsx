@@ -25,7 +25,7 @@ import {
 import { api, ApiError, App } from '@/lib/api'
 import { useToastStore } from '@/stores'
 
-type AppStatus = 'running' | 'stopped' | 'deploying' | 'failed'
+type AppStatus = 'running' | 'stopped' | 'deploying' | 'failed' | 'restarting'
 type Runtime = 'nodejs' | 'python' | 'go' | 'php' | 'ruby' | 'static' | 'docker'
 
 interface AppListItem {
@@ -61,6 +61,7 @@ const statusColors: Record<AppStatus, { bg: string; text: string; dot: string }>
   stopped: { bg: 'bg-slate-500/10', text: 'text-slate-400', dot: 'bg-slate-400' },
   deploying: { bg: 'bg-amber-500/10', text: 'text-amber-500', dot: 'bg-amber-500' },
   failed: { bg: 'bg-red-500/10', text: 'text-red-500', dot: 'bg-red-500' },
+  restarting: { bg: 'bg-blue-500/10', text: 'text-blue-500', dot: 'bg-blue-500' },
 }
 
 function formatRelativeTime(dateString?: string): string {
@@ -96,7 +97,7 @@ export default function AppsPage() {
     queryFn: async () => {
       const response = await api.apps.list({
         page,
-        limit: 20,
+        per_page: 20,
         status: statusFilter !== 'all' ? statusFilter : undefined,
         search: search || undefined,
       })
@@ -319,9 +320,9 @@ export default function AppsPage() {
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-2">
                         <span className={`w-2 h-2 rounded-full ${statusColors[app.status]?.dot || 'bg-slate-400'}`} />
-                        {app.status === 'deploying' && (
-                          <RefreshCw className="w-3 h-3 text-amber-500 animate-spin" />
-                        )}
+{app.status === 'deploying' || app.status === 'restarting' ? (
+                            <RefreshCw className="w-3 h-3 text-amber-500 animate-spin" />
+                          ) : null}
                       </div>
                     </td>
                     <td className="px-4 py-4">

@@ -164,7 +164,7 @@ export const api = {
 
   // Apps
   apps: {
-    list: (params?: { page?: number; limit?: number; status?: string; search?: string }) =>
+    list: (params?: { page?: number; per_page?: number; status?: string; search?: string }) =>
       request<AppsResponse>('/apps', { params }),
 
     get: (id: string) =>
@@ -203,6 +203,11 @@ export const api = {
         method: 'POST',
       }),
 
+    start: (id: string) =>
+      request<void>(`/apps/${id}/start`, {
+        method: 'POST',
+      }),
+
     rollback: (id: string, deploymentId: string) =>
       request<{ message: string; new_deployment_id: string; target_deployment_id: string }>(`/apps/${id}/rollback`, {
         method: 'POST',
@@ -211,17 +216,20 @@ export const api = {
 
     // Environment variables
     getEnv: (id: string) =>
-      request<EnvVariable[]>(`/apps/${id}/env`),
+      request<{ app_id: string; variables: EnvVariable[] }>(`/apps/${id}/env`),
 
-    updateEnv: (id: string, variables: EnvVariable[]) =>
-      request<EnvVariable[]>(`/apps/${id}/env`, {
+    updateEnv: (id: string, variables: EnvVariable[], deleteKeys: string[] = []) =>
+      request<{ message: string; updated_count: number; deleted_count: number }>(`/apps/${id}/env`, {
         method: 'PUT',
-        body: JSON.stringify({ variables }),
+        body: JSON.stringify({
+          variables: variables.map(v => ({ key: v.key, value: v.value, is_secret: v.secret })),
+          delete_keys: deleteKeys,
+        }),
       }),
 
     // Deployments
-    getDeployments: (id: string) =>
-      request<Deployment[]>(`/apps/${id}/deployments`),
+    getDeployments: (id: string, params?: { page?: number; per_page?: number; status?: string }) =>
+      request<{ data: Deployment[]; meta: { total: number; page: number; per_page: number; total_pages: number } }>(`/apps/${id}/deployments`, { params }),
 
     getDeploymentLogs: (appId: string, deploymentId: string) =>
       request<{ logs: string }>(`/apps/${appId}/deployments/${deploymentId}/logs`),
@@ -233,7 +241,7 @@ export const api = {
 
   // Services
   services: {
-    list: (params?: { page?: number; limit?: number; type?: string }) =>
+    list: (params?: { page?: number; per_page?: number; type?: string }) =>
       request<ServicesResponse>('/services', { params }),
 
     get: (id: string) =>
@@ -286,7 +294,7 @@ export const api = {
 
   // Activity
   activity: {
-    list: (params?: { page?: number; limit?: number; type?: string }) =>
+    list: (params?: { page?: number; per_page?: number; type?: string }) =>
       request<ActivityResponse>('/activity', { params }),
   },
 
@@ -372,7 +380,7 @@ export interface RegisterResponse {
 export interface App {
   id: string
   name: string
-  status: 'running' | 'stopped' | 'deploying' | 'failed'
+  status: 'running' | 'stopped' | 'deploying' | 'failed' | 'restarting'
   health_status?: string
   runtime: string
   runtime_version?: string
@@ -443,7 +451,7 @@ export interface EnvVariable {
 export interface Deployment {
   id: string
   app_id: string
-  status: 'pending' | 'building' | 'deploying' | 'success' | 'failed'
+  status: 'queued' | 'in_progress' | 'success' | 'failed' | 'cancelled'
   commit?: string
   commit_message?: string
   commit_author?: string
