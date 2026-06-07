@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"panel-api/internal/config"
 	"strings"
 
@@ -51,6 +52,8 @@ func CORS(cfg *config.Config) gin.HandlerFunc {
 					if idx := strings.Index(hostOnly, ":"); idx != -1 {
 						hostOnly = hostOnly[:idx]
 					}
+
+					fmt.Printf("CORS Debug: origin=%s host=%s originHost=%s hostOnly=%s PanelDomain=%s\n", origin, host, originHost, hostOnly, cfg.PanelDomain)
 
 					if originHost == hostOnly || originHost == "localhost" || originHost == "127.0.0.1" {
 						c.Header("Access-Control-Allow-Origin", origin)
