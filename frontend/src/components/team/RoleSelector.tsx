@@ -196,7 +196,7 @@ export function RoleSelector({ open, onClose, member }: RoleSelectorProps) {
                   <div>
                     <h3 className="text-sm font-medium text-amber-200">Confirm Role Change</h3>
                     <p className="text-sm text-amber-100/80 mt-1">
-                      You are about to change {member.name}'s role from{' '}
+                      You are about to change {member.name}&apos;s role from{' '}
                       <span className="font-medium">{member.role}</span> to{' '}
                       <span className="font-medium">{selectedRole}</span>.
                     </p>
@@ -204,7 +204,7 @@ export function RoleSelector({ open, onClose, member }: RoleSelectorProps) {
                 </div>
 
                 <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Type "change role" to confirm
+                  Type &quot;change role&quot; to confirm
                 </label>
                 <input
                   type="text"

@@ -502,7 +502,7 @@ export function FileManager({
           <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 w-96 shadow-xl">
             <h3 className="text-lg font-medium text-white mb-2">Confirm Delete</h3>
             <p className="text-slate-400 mb-4">
-              Are you sure you want to delete "{deleteConfirm}"? This action cannot be undone.
+              Are you sure you want to delete &quot;{deleteConfirm}&quot;? This action cannot be undone.
             </p>
             <div className="flex justify-end gap-3">
               <button

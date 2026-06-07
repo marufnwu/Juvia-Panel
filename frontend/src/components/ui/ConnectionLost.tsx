@@ -28,7 +28,7 @@ export function ConnectionLost({
     }, 1000)
 
     return () => clearTimeout(timer)
-  }, [countdown])
+  }, [countdown, handleRetry])
 
   const handleRetry = useCallback(() => {
     setIsRetrying(true)

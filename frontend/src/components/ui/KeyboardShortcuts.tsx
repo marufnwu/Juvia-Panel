@@ -173,7 +173,7 @@ export function KeyboardShortcuts({ open = true, onClose }: KeyboardShortcutsPro
 
             {filteredCategories.length === 0 && (
               <div className="text-center py-8">
-                <p className="text-slate-400">No shortcuts found for "{search}"</p>
+                <p className="text-slate-400">No shortcuts found for &quot;{search}&quot;</p>
               </div>
             )}
           </div>

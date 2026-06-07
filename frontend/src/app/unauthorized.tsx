@@ -17,7 +17,7 @@ export default function Unauthorized() {
         {/* Text */}
         <h1 className="text-4xl font-bold text-white mb-4">Access denied</h1>
         <p className="text-slate-400 mb-8">
-          You don't have permission to view this resource.
+          You don&apos;t have permission to view this resource.
           <br />
           Contact your team administrator.
         </p>

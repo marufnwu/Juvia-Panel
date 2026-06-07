@@ -272,7 +272,7 @@ export default function SetupPage() {
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-success-500/10 mb-4">
                 <CheckCircle className="w-8 h-8 text-success-400" />
               </div>
-              <h2 className="text-xl font-bold text-white mb-2">You're all set!</h2>
+              <h2 className="text-xl font-bold text-white mb-2">You&apos;re all set!</h2>
               <p className="text-slate-400 mb-8">
                 Your admin account has been created. You can now start managing your server.
               </p>

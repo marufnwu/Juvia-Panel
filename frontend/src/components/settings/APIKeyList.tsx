@@ -164,7 +164,7 @@ function CreateKeyModal({ open, onClose, onCreated }: CreateKeyModalProps) {
                 </div>
                 <h3 className="text-lg font-medium text-white mb-2">API Key Created</h3>
                 <p className="text-sm text-slate-400">
-                  Copy this key now. You won't be able to see it again.
+                  Copy this key now. You won&apos;t be able to see it again.
                 </p>
               </div>
 
