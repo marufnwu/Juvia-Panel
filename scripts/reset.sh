@@ -20,7 +20,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --yes) KEEP_BACKUP=false; shift ;;
         --debug) set -x; shift ;;
-        *) echo "Usage: juvia-reset [--yes] [--debug]"; exit 1 ;;
+        *) echo "Usage: juvia reset [--yes] [--debug]"; exit 1 ;;
     esac
 done
 
