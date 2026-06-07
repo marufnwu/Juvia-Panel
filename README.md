@@ -6,40 +6,6 @@ Juvia Panel is a complete platform for deploying and running web applications on
 
 ---
 
-## What You Get
-
-### One-Click App Deployment
-Deploy from any Git repository. Juvia Panel detects your runtime (Node.js, Python, PHP, Go, Ruby, or static files) using Nixpacks and builds a Docker image automatically. Custom Dockerfiles are fully supported.
-
-### Managed Databases & Caches
-Spin up PostgreSQL, MySQL, Redis, MongoDB, or MinIO in seconds. No manual Docker Compose, no terminal commands.
-
-### Automatic HTTPS
-Caddy 2 handles TLS certificate issuance and renewal — every app you deploy gets a valid certificate automatically.
-
-### Health Monitoring
-Every container runs with automatic health checks. If an app crashes, the agent restarts it and alerts you.
-
-### Backups
-Manual and scheduled backups for all services. One-click restore from any backup point.
-
-### App Templates
-One-click deploy for popular stacks — WordPress, Ghost, Plausible Analytics, Django, Node.js Express, plus database and cache templates.
-
-### Team Management
-Invite developers, operators, and viewers. Role-based access: owner, admin, developer, viewer.
-
-### Real-Time Dashboard
-Live CPU, RAM, and disk metrics via WebSocket. Watch deployment progress in real time. Full activity log of every change.
-
-### API Access
-Generate scoped API keys to automate anything from CI/CD pipelines to custom integrations.
-
-### Browser Terminal
-Access container shells directly from the browser with a full xterm.js terminal — no SSH client needed.
-
----
-
 ## Requirements
 
 | | |
@@ -52,34 +18,82 @@ Access container shells directly from the browser with a full xterm.js terminal 
 
 ---
 
-## Install
+## Quick Install
 
-Clone the repository and run the install script:
-
-```bash
-git clone https://github.com/marufnwu/Juvia-Panel.git
-cd Juvia-Panel
-sudo bash scripts/install.sh
-```
-
-Or install directly from git:
+Install Juvia Panel with a single command:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/marufnwu/Juvia-Panel/master/scripts/install.sh | sudo bash
 ```
 
-After installation, the `juvia` CLI is available:
+That's it! The installer will handle everything.
+
+After installation completes, you'll see:
+```
+Juvia Panel is running at:
+  http://YOUR_SERVER_IP:2053
+```
+
+Visit that URL and create your first admin account.
+
+---
+
+## The `juvia` CLI
+
+After installation, the `juvia` command is available for managing your panel:
 
 | Command | Description |
 |---------|-------------|
 | `juvia update` | Update panel to latest version |
-| `juvia uninstall` | Remove panel installation |
-| `juvia reset` | Reset panel to fresh state (database reset) |
+| `juvia uninstall` | Remove panel from the system |
+| `juvia reset` | Reset panel database (fresh install) |
 
-### Install Options
+### Update
 
 ```bash
-sudo bash scripts/install.sh \
+# Check for updates
+sudo juvia update check
+
+# Update to latest version
+sudo juvia update
+
+# Update to specific version
+sudo juvia update --version v1.2.0
+
+# Rollback if something goes wrong
+sudo juvia update rollback
+```
+
+### Uninstall
+
+```bash
+# Standard uninstall (keeps app data)
+sudo juvia uninstall
+
+# Full purge (removes everything including data)
+sudo juvia uninstall --purge
+```
+
+### Reset
+
+If you lost your admin password or want to start fresh:
+
+```bash
+# Reset panel (backups database first)
+sudo juvia reset
+
+# Reset without backup
+sudo juvia reset --yes
+```
+
+After reset, visit your panel URL to create a new admin account.
+
+---
+
+## Install Options
+
+```bash
+curl -sSL https://raw.githubusercontent.com/marufnwu/Juvia-Panel/master/scripts/install.sh | sudo bash -s -- \
   --domain panel.example.com \
   --email admin@example.com \
   --data-dir /var/panel \
@@ -87,8 +101,7 @@ sudo bash scripts/install.sh \
   --install-dir /opt/panel \
   --skip-docker \
   --skip-caddy \
-  --skip-firewall \
-  --debug
+  --skip-firewall
 ```
 
 | Flag | Default | Description |
@@ -101,147 +114,39 @@ sudo bash scripts/install.sh \
 | `--skip-docker` | `false` | Skip Docker CE installation |
 | `--skip-caddy` | `false` | Skip Caddy 2 installation |
 | `--skip-firewall` | `false` | Skip UFW firewall configuration |
-| `--debug` | `false` | Verbose output for troubleshooting |
 
-### What the installer does
+---
+
+## What the Installer Does
 
 1. Checks your system (OS version, RAM, disk, kernel)
-2. Installs Docker CE and Caddy 2
+2. Installs Docker CE and Caddy 2 (unless skipped)
 3. Creates the `juvia` user and directory structure
-4. Downloads pre-built binaries from GitHub Releases (falls back to building from source)
+4. Downloads pre-built binaries from GitHub Releases (or builds from source if unavailable)
 5. Generates security keys and configuration
 6. Initializes the SQLite database and runs migrations
-7. Installs and enables systemd services (`juvia-agent`, `juvia-api`, `juvia-ui`, `juvia-caddy`)
-8. Configures the firewall (SSH, HTTP, HTTPS, port 2053 allowed)
+7. Installs and enables systemd services
+8. Configures the firewall (unless skipped)
 9. Starts everything and verifies with a health check
 
-At the end you'll see the URL where Juvia Panel is running:
-```
-Juvia Panel is running at:
-  http://YOUR_SERVER_IP:2053
-```
+---
 
-Visit that URL and create your first admin account.
+## Managing Services
 
-### Systemd Services
+Systemd services are used for reliability and auto-restart:
 
-| Service | Description | Port |
-|---------|-------------|------|
-| `juvia-agent` | Docker container management agent | Unix socket |
-| `juvia-api` | REST API server | 9090 |
-| `juvia-ui` | Next.js web dashboard | 3000 |
-| `juvia-caddy` | Reverse proxy with automatic TLS | 80, 443, 2053 |
+| Service | Description |
+|---------|-------------|
+| `juvia-agent` | Docker container management |
+| `juvia-api` | REST API server |
+| `juvia-caddy` | Reverse proxy with automatic TLS |
 
-Manage services with:
+Manage them with:
 ```bash
-sudo systemctl status juvia-api juvia-ui juvia-caddy
+sudo systemctl status juvia-api juvia-caddy
 sudo systemctl restart juvia-api
 sudo journalctl -u juvia-api -f
 ```
-
----
-
-## Updating
-
-```bash
-# Check for a new version
-sudo juvia update check
-
-# Update to the latest version
-sudo juvia update
-
-# Update to a specific version
-sudo juvia update --version v1.2.0
-
-# Disable automatic rollback on failure
-sudo juvia update --no-rollback
-
-# Rollback to previous version
-sudo juvia update rollback
-
-# Debug mode
-sudo juvia update --debug
-```
-
-### What the updater does
-
-1. Backs up the database and configuration
-2. Downloads the new release bundle from GitHub Releases
-3. Falls back to building from source if no release bundle is available
-4. Stops services
-5. Runs pending database migrations
-6. Replaces binaries and UI files atomically
-7. Restarts all services (`juvia-agent`, `juvia-api`, `juvia-ui`, `juvia-caddy`)
-8. Runs a health check — if it fails, automatically rolls back to the previous version
-9. Cleans up old backups (older than 7 days)
-
----
-
-## Uninstall
-
-```bash
-# Standard uninstall (keeps app data and volumes)
-sudo juvia uninstall
-
-# Full purge including all app data and volumes
-sudo juvia uninstall --purge
-
-# Export docker-compose.yml and .env files before removing
-sudo juvia uninstall --export-only
-
-# Keep the juvia system user
-sudo juvia uninstall --keep-user
-
-# Keep app data even with purge
-sudo juvia uninstall --purge --keep-data
-
-# Debug mode
-sudo juvia uninstall --debug
-```
-
-### What the uninstaller does
-
-1. Exports all apps as `docker-compose.yml` with volume data (unless `--purge`)
-2. Stops all Juvia Panel services
-3. Removes Docker containers and images created by the panel
-4. Removes systemd services (`juvia-agent`, `juvia-api`, `juvia-ui`, `juvia-caddy`)
-5. Removes binaries from `/usr/local/bin/`
-6. Removes installation directory (`/opt/panel`)
-7. Removes firewall rules
-8. Removes the `juvia` system user (unless `--keep-user`)
-9. With `--purge`: removes config (`/etc/panel`) and data (`/var/panel`)
-
-### Uninstall Flags
-
-| Flag | Description |
-|------|-------------|
-| `--export-only` | Export apps and stop services, but don't remove anything |
-| `--purge` | Remove everything including config and data |
-| `--keep-data` | Keep `/var/panel` even with `--purge` |
-| `--keep-user` | Don't remove the `juvia` system user |
-| `--debug` | Verbose output |
-
----
-
-## Reset Panel
-
-To reset the panel to a fresh installation state (useful when you lost admin credentials or want to start over):
-
-```bash
-# Reset panel (creates backup of database first)
-sudo juvia reset
-
-# Reset without keeping backup
-sudo juvia reset --yes
-```
-
-This will:
-1. Stop the API service
-2. Backup and remove the database
-3. Start the API service
-4. Show the setup/registration page on next visit
-
-**After reset**, visit your panel URL and create a new admin account.
 
 ---
 
@@ -250,14 +155,14 @@ This will:
 ### Deploy from Git
 
 1. Go to **Apps → New App**
-2. Enter your Git repository URL (GitHub, GitLab, or self-hosted)
+2. Enter your Git repository URL
 3. Select the branch to deploy
 4. Choose a build strategy:
    - **Auto** — Nixpacks detects your runtime automatically
    - **Nixpacks** — explicit runtime selection
-   - **Dockerfile** — your own `Dockerfile` in the repository
+   - **Dockerfile** — use your own `Dockerfile`
    - **Static** — serve static files from `/public`
-5. Add environment variables (secrets are encrypted)
+5. Add environment variables if needed
 6. Click **Deploy**
 
 ### App Statuses
@@ -310,8 +215,6 @@ Visit **Templates** to browse pre-configured Docker Compose setups:
 | PostgreSQL Database | Database | PostgreSQL |
 | Redis Cache | Cache | Redis |
 
-Click **View Compose** to see the Docker Compose file, or copy the URL to use in your own deployment pipeline.
-
 ---
 
 ## Environment Variables
@@ -334,7 +237,7 @@ To update an app's environment variables, go to **Apps → [app name] → Enviro
 | Developer | ✓ | — | — | — |
 | Viewer | — | — | — | — |
 
-To invite a team member, go to **Team → Invite** and enter their email address. They'll receive a link to create an account.
+To invite a team member, go to **Team → Invite** and enter their email address.
 
 ---
 
@@ -371,48 +274,39 @@ The **Server** page provides:
 
 ## Troubleshooting
 
+### `juvia: command not found`
+
+If you installed before the `juvia` CLI was available, download it manually:
+
+```bash
+sudo curl -sSL https://raw.githubusercontent.com/marufnwu/Juvia-Panel/master/scripts/juvia -o /usr/local/bin/juvia
+sudo chmod +x /usr/local/bin/juvia
+```
+
 ### App won't deploy
+
 Check the **Logs** tab on the app detail page. Common causes:
 - Build command failed (check your `package.json` or `Dockerfile`)
 - Environment variable mismatch
 - Insufficient memory limit
 
 ### Service connection failed
+
 - Verify the service status is `running`
 - Check the connection string in **Services → [service] → Connection Info**
 - Ensure your app's environment variables point to the correct host/port
 
 ### Domain not resolving
+
 - Check your DNS A record points to your server's public IP
 - Allow up to 5 minutes for TLS certificate issuance
 - Try HTTP first to confirm Caddy is routing requests
 
 ### Need help?
+
 1. Check the activity log at **Activity** for error details
 2. View logs: `journalctl -u juvia-api -u juvia-agent`
-3. Re-run the install script with `--debug` for verbose output
-
----
-
-## Frequently Asked Questions
-
-**Can I use my own domain?**
-Yes. Any domain you own and control. Just point a DNS A record at your server's public IP.
-
-**Does it support custom ports?**
-Yes. You can map any internal port to an external one. By default, Caddy routes `:443` traffic based on the `Host` header to the correct app container.
-
-**Can I run multiple apps on the same server?**
-Yes. That's the primary use case. Each app gets its own Docker container on a shared `panel_apps` Docker network, with Caddy routing based on domain.
-
-**What happens if the server restarts?**
-Systemd services are configured with `Restart=always`, so the API server, agent, and Caddy all restart automatically after a reboot.
-
-**Is my data backed up automatically?**
-You can configure automated backup schedules per service. Manual backups are always available. Backups are stored locally at `/var/panel/backups`.
-
-**Can I migrate my data off?**
-Yes. Use `panel-uninstall --export` to generate `docker-compose.yml` and `.env` files for each app, plus copy volume data, before uninstalling.
+3. Run with `--debug` flag for verbose output
 
 ---
 
