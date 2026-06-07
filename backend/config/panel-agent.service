@@ -23,9 +23,9 @@ RestartSec=5s
 
 # Security hardening
 NoNewPrivileges=false
-ProtectSystem=strict
+ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/var/run/panel /var/panel/tmp /var/panel/logs
+ReadWritePaths=/var/run/panel /var/panel/tmp /var/panel/logs /etc/panel
 
 # Logging
 StandardOutput=journal

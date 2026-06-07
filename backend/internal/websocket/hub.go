@@ -90,24 +90,26 @@ func NewHub(cfg *config.Config) *Hub {
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 			CheckOrigin: func(r *http.Request) bool {
-				// In development, allow all
-				if cfg.Env == "development" {
-					return true
-				}
-				// In production, check against whitelist
 				origin := r.Header.Get("Origin")
 				if origin == "" {
 					return true
 				}
-				if cfg.AllowedOrigins == "" {
-					// Fallback to panel domain check
-					return cfg.PanelDomain != "" && strings.Contains(origin, cfg.PanelDomain)
+				if cfg.Env == "development" {
+					return true
 				}
-				allowedList := strings.Split(cfg.AllowedOrigins, ",")
-				for _, allowed := range allowedList {
-					if strings.TrimSpace(allowed) == origin {
-						return true
+				if cfg.AllowedOrigins != "" {
+					allowedList := strings.Split(cfg.AllowedOrigins, ",")
+					for _, allowed := range allowedList {
+						if strings.TrimSpace(allowed) == origin {
+							return true
+						}
 					}
+				}
+				if cfg.PanelDomain != "" && strings.Contains(origin, cfg.PanelDomain) {
+					return true
+				}
+				if cfg.AllowedOrigins == "" && cfg.PanelDomain == "" {
+					return true
 				}
 				return false
 			},
