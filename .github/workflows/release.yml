@@ -105,6 +105,8 @@ jobs:
           cp scripts/install.sh build/scripts/
           cp scripts/uninstall.sh build/scripts/
           cp scripts/update.sh build/scripts/
+          cp scripts/reset.sh build/scripts/
+          cp scripts/juvia build/scripts/
 
       - name: Copy Caddyfile
         run: |
