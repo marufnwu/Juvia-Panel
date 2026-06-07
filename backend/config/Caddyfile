@@ -37,9 +37,7 @@
 
     # Proxy API requests to Go backend
     handle /api/* {
-        reverse_proxy localhost:9090 {
-            header_up X-Forwarded-Host {host}
-        }
+        reverse_proxy localhost:9090
     }
 
     # Health check
