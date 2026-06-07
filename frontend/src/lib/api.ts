@@ -444,7 +444,7 @@ export interface CreateAppInput {
     auto_deploy?: boolean
   }
   build?: {
-    strategy?: 'auto' | 'nixpacks' | 'dockerfile' | 'static'
+    strategy?: 'auto' | 'nixpacks' | 'dockerfile' | 'static' | 'custom'
     build_command?: string
     start_command?: string
   }

@@ -90,7 +90,7 @@ CREATE TABLE apps (
     source_config TEXT NOT NULL,
 
     build_strategy TEXT NOT NULL DEFAULT 'nixpacks'
-        CHECK (build_strategy IN ('nixpacks', 'dockerfile', 'static', 'custom')),
+        CHECK (build_strategy IN ('nixpacks', 'dockerfile', 'static', 'custom', 'auto')),
     build_config TEXT,
 
     container_id TEXT,

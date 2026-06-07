@@ -396,6 +396,30 @@ func (h *Handler) CreateApp(c *gin.Context) {
 			return
 		}
 	}
+
+	// Validate source type
+	validSourceTypes := map[string]bool{"git": true, "upload": true, "docker_compose": true}
+	if !validSourceTypes[req.Source.Type] {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:     "invalid_source_type",
+			Message:   "Source type must be one of: git, upload, docker_compose",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	// Validate build strategy if provided
+	if req.Build != nil && req.Build.Strategy != "" {
+		validBuildStrategies := map[string]bool{"auto": true, "nixpacks": true, "dockerfile": true, "static": true, "custom": true}
+		if !validBuildStrategies[req.Build.Strategy] {
+			c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error:     "invalid_build_strategy",
+				Message:   "Build strategy must be one of: auto, nixpacks, dockerfile, static, custom",
+				RequestID: requestID,
+			})
+			return
+		}
+	}
 	
 	// Generate app ID
 	appID, err := generateID("app_")
@@ -497,9 +521,10 @@ func (h *Handler) CreateApp(c *gin.Context) {
 	}
 	
 	if err := h.repo.CreateApp(ctx, app); err != nil {
+		log.Printf("Failed to create app %s: %v", appID, err)
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Error:     "internal_error",
-			Message:   "Failed to create app",
+			Message:   "Failed to create app: " + err.Error(),
 			RequestID: requestID,
 		})
 		return
