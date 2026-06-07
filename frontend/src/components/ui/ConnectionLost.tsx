@@ -9,13 +9,19 @@ interface ConnectionLostProps {
   autoRetrySeconds?: number
 }
 
-export function ConnectionLost({ 
-  onRetry, 
+export function ConnectionLost({
+  onRetry,
   onCancel,
-  autoRetrySeconds = 5 
+  autoRetrySeconds = 5
 }: ConnectionLostProps) {
   const [countdown, setCountdown] = useState(autoRetrySeconds)
   const [isRetrying, setIsRetrying] = useState(false)
+
+  const handleRetry = useCallback(() => {
+    setIsRetrying(true)
+    onRetry()
+    setTimeout(() => setIsRetrying(false), 2000)
+  }, [onRetry])
 
   useEffect(() => {
     if (countdown <= 0) {
@@ -29,13 +35,6 @@ export function ConnectionLost({
 
     return () => clearTimeout(timer)
   }, [countdown, handleRetry])
-
-  const handleRetry = useCallback(() => {
-    setIsRetrying(true)
-    onRetry()
-    // Reset after a delay - parent should hide this component on successful reconnect
-    setTimeout(() => setIsRetrying(false), 2000)
-  }, [onRetry])
 
   const handleCancel = () => {
     onCancel?.()
