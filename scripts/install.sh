@@ -36,7 +36,7 @@ cleanup_on_error() {
     local exit_code=$?
     log_error "Installation failed at step $CURRENT_STEP with exit code $exit_code"
     log_info "Check /var/log/panel-install.log for details"
-    log_info "To clean up partial installation, run: sudo juvia-uninstall --purge"
+    log_info "To clean up partial installation, run: sudo juvia uninstall --purge"
     exit $exit_code
 }
 trap cleanup_on_error ERR
@@ -293,6 +293,13 @@ if [[ "$BUILD_FROM_SOURCE" == "false" ]]; then
         log_info "Caddyfile copied to $CONFIG_DIR/caddy"
     fi
 
+    # Install CLI
+    if [[ -f "$DOWNLOAD_DIR/extracted/scripts/juvia" ]]; then
+        chmod +x "$DOWNLOAD_DIR/extracted/scripts/juvia"
+        mv "$DOWNLOAD_DIR/extracted/scripts/juvia" "/usr/local/bin/juvia"
+        log_info "Installed juvia CLI"
+    fi
+
     REPO_VERSION="$RELEASE_TAG"
 fi
 
@@ -371,6 +378,17 @@ fi
 
 chmod +x /usr/local/bin/juvia-{api,agent,cli}
 log_info "Binaries installed (version: $REPO_VERSION)"
+
+# Install CLI scripts from source
+SCRIPT_DIR="$TEMP_CLONE_DIR/scripts"
+for script in juvia; do
+    if [[ -f "$SCRIPT_DIR/$script" ]]; then
+        chmod +x "$SCRIPT_DIR/$script"
+        cp "$SCRIPT_DIR/$script" "/usr/local/bin/juvia"
+        log_info "Installed juvia CLI"
+        break
+    fi
+done
 
 step "Generating configuration"
 openssl rand -hex 32 > "$CONFIG_DIR/keys/master"

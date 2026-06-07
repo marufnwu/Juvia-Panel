@@ -325,24 +325,10 @@ if [[ -f "$DOWNLOAD_DIR/extracted/config/Caddyfile" ]]; then
     fi
 fi
 
-# Update scripts in /usr/local/bin
-SCRIPT_UPDATED=0
-for script_name in juvia-install juvia-update juvia-uninstall; do
-    if [[ -f "$DOWNLOAD_DIR/extracted/scripts/install.sh" ]] && [[ "$script_name" == "juvia-install" ]]; then
-        install -m 755 "$DOWNLOAD_DIR/extracted/scripts/install.sh" /usr/local/bin/juvia-install
-        SCRIPT_UPDATED=1
-    fi
-    if [[ -f "$DOWNLOAD_DIR/extracted/scripts/update.sh" ]] && [[ "$script_name" == "juvia-update" ]]; then
-        install -m 755 "$DOWNLOAD_DIR/extracted/scripts/update.sh" /usr/local/bin/juvia-update
-        SCRIPT_UPDATED=1
-    fi
-    if [[ -f "$DOWNLOAD_DIR/extracted/scripts/uninstall.sh" ]] && [[ "$script_name" == "juvia-uninstall" ]]; then
-        install -m 755 "$DOWNLOAD_DIR/extracted/scripts/uninstall.sh" /usr/local/bin/juvia-uninstall
-        SCRIPT_UPDATED=1
-    fi
-done
-if [[ $SCRIPT_UPDATED -eq 1 ]]; then
-    log_info "Scripts updated"
+# Update CLI in /usr/local/bin
+if [[ -f "$DOWNLOAD_DIR/extracted/scripts/juvia" ]]; then
+    install -m 755 "$DOWNLOAD_DIR/extracted/scripts/juvia" /usr/local/bin/juvia
+    log_info "Juvia CLI updated"
 fi
 
 rm -rf "$DOWNLOAD_DIR"
@@ -407,7 +393,7 @@ else
         log_error "Health check failed. Rolling back..."
         rollback_update
     else
-        log_error "Health check failed. Run 'juvia-update rollback' to restore."
+        log_error "Health check failed. Run 'juvia update rollback' to restore."
     fi
     exit 1
 fi

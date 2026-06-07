@@ -68,6 +68,14 @@ Or install directly from git:
 curl -sSL https://raw.githubusercontent.com/marufnwu/Juvia-Panel/master/scripts/install.sh | sudo bash
 ```
 
+After installation, the `juvia` CLI is available:
+
+| Command | Description |
+|---------|-------------|
+| `juvia update` | Update panel to latest version |
+| `juvia uninstall` | Remove panel installation |
+| `juvia reset` | Reset panel to fresh state (database reset) |
+
 ### Install Options
 
 ```bash
@@ -137,24 +145,22 @@ sudo journalctl -u juvia-api -f
 
 ```bash
 # Check for a new version
-sudo bash scripts/update.sh check
+sudo juvia update check
 
 # Update to the latest version
-sudo bash scripts/update.sh
+sudo juvia update
 
 # Update to a specific version
-sudo bash scripts/update.sh --version v1.2.0
+sudo juvia update --version v1.2.0
 
 # Disable automatic rollback on failure
-sudo bash scripts/update.sh --no-rollback
+sudo juvia update --no-rollback
+
+# Rollback to previous version
+sudo juvia update rollback
 
 # Debug mode
-sudo bash scripts/update.sh --debug
-```
-
-Or run directly from git:
-```bash
-curl -sSL https://raw.githubusercontent.com/marufnwu/Juvia-Panel/master/scripts/update.sh | sudo bash
+sudo juvia update --debug
 ```
 
 ### What the updater does
@@ -169,35 +175,28 @@ curl -sSL https://raw.githubusercontent.com/marufnwu/Juvia-Panel/master/scripts/
 8. Runs a health check — if it fails, automatically rolls back to the previous version
 9. Cleans up old backups (older than 7 days)
 
-### Rollback
-
-If an update fails and automatic rollback is disabled:
-```bash
-sudo bash scripts/update.sh rollback
-```
-
 ---
 
 ## Uninstall
 
 ```bash
 # Standard uninstall (keeps app data and volumes)
-sudo bash scripts/uninstall.sh
+sudo juvia uninstall
 
 # Full purge including all app data and volumes
-sudo bash scripts/uninstall.sh --purge
+sudo juvia uninstall --purge
 
 # Export docker-compose.yml and .env files before removing
-sudo bash scripts/uninstall.sh --export-only
+sudo juvia uninstall --export-only
 
 # Keep the juvia system user
-sudo bash scripts/uninstall.sh --keep-user
+sudo juvia uninstall --keep-user
 
 # Keep app data even with purge
-sudo bash scripts/uninstall.sh --purge --keep-data
+sudo juvia uninstall --purge --keep-data
 
 # Debug mode
-sudo bash scripts/uninstall.sh --debug
+sudo juvia uninstall --debug
 ```
 
 ### What the uninstaller does
@@ -221,6 +220,28 @@ sudo bash scripts/uninstall.sh --debug
 | `--keep-data` | Keep `/var/panel` even with `--purge` |
 | `--keep-user` | Don't remove the `juvia` system user |
 | `--debug` | Verbose output |
+
+---
+
+## Reset Panel
+
+To reset the panel to a fresh installation state (useful when you lost admin credentials or want to start over):
+
+```bash
+# Reset panel (creates backup of database first)
+sudo juvia reset
+
+# Reset without keeping backup
+sudo juvia reset --yes
+```
+
+This will:
+1. Stop the API service
+2. Backup and remove the database
+3. Start the API service
+4. Show the setup/registration page on next visit
+
+**After reset**, visit your panel URL and create a new admin account.
 
 ---
 
