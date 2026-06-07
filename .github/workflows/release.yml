@@ -116,11 +116,16 @@ jobs:
       - name: Package Release Bundle
         run: |
           cd build
+          if [ "${{ matrix.arch }}" == "amd64" ]; then
+            UI_TAR="juvia-ui.tar.gz"
+          else
+            UI_TAR=""
+          fi
           tar -czf juvia-release-${{ matrix.arch }}.tar.gz \
             juvia-api-linux-${{ matrix.arch }} \
             juvia-agent-linux-${{ matrix.arch }} \
             juvia-cli-linux-${{ matrix.arch }} \
-            juvia-ui.tar.gz \
+            $UI_TAR \
             migrations/ \
             scripts/ \
             config/
