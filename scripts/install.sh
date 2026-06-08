@@ -297,9 +297,9 @@ if [[ "$BUILD_FROM_SOURCE" == "false" ]]; then
         log_info "Caddyfile copied to $CONFIG_DIR/caddy"
     fi
 
-    # Install CLI and scripts from master
+    # Install CLI and scripts from release branch
     mkdir -p "$CONFIG_DIR/scripts"
-    SCRIPTS_BASE="https://raw.githubusercontent.com/marufnwu/Juvia-Panel/master/scripts"
+    SCRIPTS_BASE="https://raw.githubusercontent.com/marufnwu/Juvia-Panel/${REPO_BRANCH}/scripts"
     for script in juvia install.sh update.sh uninstall.sh reset.sh; do
         curl -sSL "$SCRIPTS_BASE/$script" -o "/tmp/$script" 2>/dev/null || true
     done
@@ -394,9 +394,9 @@ fi
 chmod +x /usr/local/bin/juvia-{api,agent,cli}
 log_info "Binaries installed (version: $REPO_VERSION)"
 
-# Install CLI and scripts from master
+# Install CLI and scripts from release branch
 mkdir -p "$CONFIG_DIR/scripts"
-SCRIPTS_BASE="https://raw.githubusercontent.com/marufnwu/Juvia-Panel/master/scripts"
+SCRIPTS_BASE="https://raw.githubusercontent.com/marufnwu/Juvia-Panel/${REPO_BRANCH}/scripts"
 for script in juvia install.sh update.sh uninstall.sh reset.sh; do
     curl -sSL "$SCRIPTS_BASE/$script" -o "/tmp/$script" 2>/dev/null || true
 done
