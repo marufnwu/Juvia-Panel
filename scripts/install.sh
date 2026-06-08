@@ -533,12 +533,12 @@ if [[ "$SKIP_FIREWALL" == "false" ]] && command -v ufw &> /dev/null; then
     ufw allow 22/tcp comment 'SSH'
     ufw allow 80/tcp comment 'HTTP (for HTTPS redirect)'
     ufw allow 443/tcp comment 'HTTPS'
+    ufw allow 2053/tcp comment 'Panel UI'
 
     ufw delete allow 8080/tcp 2>/dev/null || true
-    ufw delete allow 2053/tcp 2>/dev/null || true
 
-    log_info "Firewall configured with SSH (22), HTTP (80), HTTPS (443) allowed"
-    FIREWALL_RULES_ADDED='[{"port":22,"protocol":"tcp","action":"allow"},{"port":80,"protocol":"tcp","action":"allow"},{"port":443,"protocol":"tcp","action":"allow"}]'
+    log_info "Firewall configured with SSH (22), HTTP (80), HTTPS (443), Panel UI (2053) allowed"
+    FIREWALL_RULES_ADDED='[{"port":22,"protocol":"tcp","action":"allow"},{"port":80,"protocol":"tcp","action":"allow"},{"port":443,"protocol":"tcp","action":"allow"},{"port":2053,"protocol":"tcp","action":"allow"}]'
 else
     log_info "Firewall configuration skipped"
     FIREWALL_RULES_ADDED='[]'

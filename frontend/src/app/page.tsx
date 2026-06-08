@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   Cpu,
@@ -28,7 +29,10 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'rec
 import { api, ApiError } from '@/lib/api'
 import { useToastStore } from '@/stores'
 import { useWebSocket, useServerMetricsSubscription } from '@/lib/websocket'
+import { useAuthStore } from '@/stores'
 import type { ServerMetrics, App, Service, ActivityEvent } from '@/types'
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
 
 interface MetricsPoint {
   timestamp: number
@@ -236,12 +240,42 @@ function QuickAction({
 }
 
 export default function DashboardPage() {
+  const router = useRouter()
   const { addToast } = useToastStore()
+  const { isAuthenticated } = useAuthStore()
   const [metricsHistory, setMetricsHistory] = useState<MetricsPoint[]>([])
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+  const [checkingSetup, setCheckingSetup] = useState(true)
 
   const { ws } = useWebSocket()
+
+  useEffect(() => {
+    const checkSetup = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/auth/status`, {
+          credentials: 'include',
+        })
+        if (response.ok) {
+          const data = await response.json()
+          if (!data.users_exist) {
+            router.push('/setup')
+            return
+          }
+        }
+      } catch (e) {
+        // API not reachable, let the page handle it
+      }
+      setCheckingSetup(false)
+    }
+    checkSetup()
+  }, [router])
+
+  useEffect(() => {
+    if (!checkingSetup && !isAuthenticated) {
+      router.push('/login')
+    }
+  }, [checkingSetup, isAuthenticated, router])
 
   const handleMetricsUpdate = useCallback((data: ServerMetrics) => {
     setMetricsHistory(prev => {
@@ -348,6 +382,21 @@ export default function DashboardPage() {
     const seconds = Math.floor((Date.now() - lastUpdated.getTime()) / 1000)
     if (seconds < 60) return 'just now'
     return `${Math.floor(seconds / 60)}m ago`
+  }
+
+  if (checkingSetup) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary-400 mx-auto mb-4" />
+          <p className="text-slate-400">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return null
   }
 
   return (
