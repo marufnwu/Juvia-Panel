@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -86,6 +87,12 @@ func RateLimitAuth(cfg *config.Config) gin.HandlerFunc {
 	limiter := NewAuthRateLimiter()
 
 	return func(c *gin.Context) {
+		// Check if rate limiting is disabled via environment variable
+		if os.Getenv("PANEL_DISABLE_RATE_LIMIT") == "true" {
+			c.Next()
+			return
+		}
+
 		ip := c.ClientIP()
 
 		if !limiter.Allow(ip) {
