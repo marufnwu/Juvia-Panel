@@ -257,14 +257,18 @@ if [[ "$BUILD_FROM_SOURCE" == "false" ]]; then
     mkdir -p "$DOWNLOAD_DIR/extracted"
     tar xzf "$DOWNLOAD_DIR/juvia-release.tar.gz" -C "$DOWNLOAD_DIR/extracted/"
 
+    # Detect architecture
+    ARCH_SUFFIX=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
+
     # Install binaries
     for binary in juvia-api juvia-agent juvia-cli; do
-        if [[ -f "$DOWNLOAD_DIR/extracted/$binary" ]]; then
-            chmod +x "$DOWNLOAD_DIR/extracted/$binary"
-            mv "$DOWNLOAD_DIR/extracted/$binary" "/usr/local/bin/$binary"
+        BINARY_NAME="${binary}-linux-${ARCH_SUFFIX}"
+        if [[ -f "$DOWNLOAD_DIR/extracted/$BINARY_NAME" ]]; then
+            chmod +x "$DOWNLOAD_DIR/extracted/$BINARY_NAME"
+            mv "$DOWNLOAD_DIR/extracted/$BINARY_NAME" "/usr/local/bin/$binary"
             log_info "Installed $binary"
         else
-            log_warn "Binary $binary not found in bundle"
+            log_warn "Binary $BINARY_NAME not found in bundle"
             BUILD_FROM_SOURCE=true
         fi
     done
