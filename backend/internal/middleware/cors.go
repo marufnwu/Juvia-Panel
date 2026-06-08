@@ -32,6 +32,10 @@ func CORS(cfg *config.Config) gin.HandlerFunc {
 		} else if cfg.AllowedOrigins == "" && cfg.PanelDomain == "" {
 			c.Header("Access-Control-Allow-Origin", origin)
 			allowed = true
+		} else if isLocalOrigin(origin) {
+			// Allow localhost and IP address access for local network
+			c.Header("Access-Control-Allow-Origin", origin)
+			allowed = true
 		}
 
 		if !allowed {
@@ -52,4 +56,39 @@ func CORS(cfg *config.Config) gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// isLocalOrigin checks if the origin is localhost or an IP address
+func isLocalOrigin(origin string) bool {
+	// Remove protocol
+	origin = strings.TrimPrefix(origin, "http://")
+	origin = strings.TrimPrefix(origin, "https://")
+	
+	// Check for localhost
+	if strings.HasPrefix(origin, "localhost") {
+		return true
+	}
+	
+	// Check for IP address (simple check for IPv4)
+	parts := strings.Split(origin, ":")
+	host := parts[0]
+	
+	// Check if it's an IP address (4 parts separated by dots)
+	ipParts := strings.Split(host, ".")
+	if len(ipParts) == 4 {
+		// Simple validation: each part should be a number 0-255
+		for _, part := range ipParts {
+			if part == "" {
+				return false
+			}
+			for _, c := range part {
+				if c < '0' || c > '9' {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	
+	return false
 }
