@@ -132,10 +132,7 @@ func (c *Caddy) writePanelUIBlock(builder *strings.Builder) {
 	builder.WriteString("        }\n")
 	builder.WriteString("    }\n\n")
 
-	builder.WriteString("    @api {\n")
-	builder.WriteString("        path /api/**\n")
-	builder.WriteString("    }\n")
-	builder.WriteString("    handle @api {\n")
+	builder.WriteString("    handle /api/** {\n")
 	builder.WriteString("        reverse_proxy localhost:9090\n")
 	builder.WriteString("    }\n\n")
 
