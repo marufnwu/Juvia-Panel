@@ -258,7 +258,8 @@ export default function DashboardPage() {
         })
         if (response.ok) {
           const data = await response.json()
-          if (!data.users_exist) {
+          // Redirect to setup if setup has not been completed
+          if (!data.setup_completed) {
             router.push('/setup')
             return
           }

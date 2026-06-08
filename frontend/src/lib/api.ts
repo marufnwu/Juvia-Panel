@@ -132,7 +132,7 @@ export const api = {
       }),
 
     status: () =>
-      request<{ users_exist: boolean; count: number }>('/auth/status'),
+      request<{ users_exist: boolean; count: number; setup_completed: boolean }>('/auth/status'),
   },
 
   // Users

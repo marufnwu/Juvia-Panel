@@ -24,12 +24,13 @@ interface AuthState {
   accessToken: string | null
   user: { id: string; email: string; name: string; role: string } | null
   usersExist: boolean | null
+  setupCompleted: boolean | null
   setAuth: (token: string, user: AuthState['user']) => void
   clearAuth: () => void
   login: (username: string, password: string) => Promise<void>
   logout: () => Promise<void>
   refreshAccessToken: () => Promise<string | null>
-  checkUsersExist: () => Promise<boolean>
+  checkUsersExist: () => Promise<{ usersExist: boolean; setupCompleted: boolean }>
   register: (email: string, username: string, password: string) => Promise<{ access_token: string; user?: { id: number; email: string; username: string; role: string } }>
 }
 
@@ -38,6 +39,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   accessToken: null,
   user: null,
   usersExist: null,
+  setupCompleted: null,
   setAuth: (token, user) => set({ isAuthenticated: true, accessToken: token, user }),
   clearAuth: () => set({ isAuthenticated: false, accessToken: null, user: null }),
 
@@ -54,6 +56,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           role: data.user.role || 'viewer',
         } : null,
         usersExist: true,
+        setupCompleted: true,
       })
     } catch (error) {
       set({ isAuthenticated: false, accessToken: null, user: null })
@@ -83,10 +86,16 @@ export const useAuthStore = create<AuthState>((set) => ({
   checkUsersExist: async () => {
     try {
       const data = await api.auth.status()
-      set({ usersExist: data.users_exist })
-      return data.users_exist
+      set({ 
+        usersExist: data.users_exist,
+        setupCompleted: data.setup_completed 
+      })
+      return { 
+        usersExist: data.users_exist, 
+        setupCompleted: data.setup_completed 
+      }
     } catch {
-      return false
+      return { usersExist: false, setupCompleted: false }
     }
   },
 
@@ -103,6 +112,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           role: data.user.role,
         } : null,
         usersExist: true,
+        setupCompleted: true,
       })
       return data
     } catch (error) {

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -578,7 +579,7 @@ type UserInfo struct {
 	Role     string `json:"role"`
 }
 
-// Register handles POST /auth/register - Create first user (only works when no users exist)
+// Register handles POST /auth/register - Create first user (only works when setup is not completed)
 func Register(c *gin.Context) {
 	requestID := c.GetString("request_id")
 	var req RegisterRequest
@@ -596,9 +597,21 @@ func Register(c *gin.Context) {
 
 	ctx := context.Background()
 
-	// Check if any users exist in the database
+	// Check if setup has already been completed
+	var setupCompleted string
+	err := db.GetContext(ctx, &setupCompleted, "SELECT value FROM settings WHERE key = 'setup_completed'")
+	if err == nil && setupCompleted == "true" {
+		c.JSON(http.StatusForbidden, ErrorResponse{
+			Error:     "setup_completed",
+			Message:   "Initial setup has already been completed. Please login instead.",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	// Also check if any users exist (legacy check for backwards compatibility)
 	var count int
-	err := db.GetContext(ctx, &count, "SELECT COUNT(*) FROM users")
+	err = db.GetContext(ctx, &count, "SELECT COUNT(*) FROM users")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Error:     "internal_error",
@@ -695,6 +708,17 @@ func Register(c *gin.Context) {
 		return
 	}
 
+	// Mark setup as completed
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO settings (key, value, updated_at) VALUES ('setup_completed', 'true', ?)
+		 ON CONFLICT(key) DO UPDATE SET value = 'true', updated_at = ?`,
+		now, now,
+	)
+	if err != nil {
+		// Log but don't fail - user was created successfully
+		log.Printf("WARNING: Failed to mark setup as completed: %v", err)
+	}
+
 	// Generate session ID
 	sessionID, err := generateSessionID()
 	if err != nil {
@@ -767,7 +791,7 @@ func Register(c *gin.Context) {
 	})
 }
 
-// CheckUsersExists checks if any users exist in the database
+// CheckUsersExists checks if any users exist and if setup is completed
 func CheckUsersExists(c *gin.Context) {
 	requestID := c.GetString("request_id")
 	db := c.MustGet("db").(*database.DB)
@@ -784,9 +808,15 @@ func CheckUsersExists(c *gin.Context) {
 		return
 	}
 
+	// Check if setup has been completed
+	var setupCompleted string
+	setupCompletedErr := db.GetContext(ctx, &setupCompleted, "SELECT value FROM settings WHERE key = 'setup_completed'")
+	setupDone := setupCompletedErr == nil && setupCompleted == "true"
+
 	c.JSON(http.StatusOK, gin.H{
-		"users_exist": count > 0,
-		"count":       count,
+		"users_exist":     count > 0,
+		"count":           count,
+		"setup_completed": setupDone,
 	})
 }
 

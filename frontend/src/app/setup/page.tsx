@@ -28,18 +28,18 @@ export default function SetupPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [formError, setFormError] = useState('')
 
-  // Check if users already exist on mount
+  // Check if setup is already completed on mount
   useEffect(() => {
-    async function checkUsers() {
-      const exists = await checkUsersExist()
-      if (exists) {
-        // Users exist, redirect to login
+    async function checkSetup() {
+      const { setupCompleted } = await checkUsersExist()
+      if (setupCompleted) {
+        // Setup already completed, redirect to login
         router.push('/login')
       } else {
         setIsCheckingUsers(false)
       }
     }
-    checkUsers()
+    checkSetup()
   }, [checkUsersExist, router])
 
   // If already authenticated, redirect to dashboard
