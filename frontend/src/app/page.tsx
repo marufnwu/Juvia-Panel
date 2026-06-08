@@ -242,41 +242,21 @@ function QuickAction({
 export default function DashboardPage() {
   const router = useRouter()
   const { addToast } = useToastStore()
-  const { isAuthenticated } = useAuthStore()
+  const { isAuthenticated, accessToken } = useAuthStore()
   const [metricsHistory, setMetricsHistory] = useState<MetricsPoint[]>([])
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [isConnected, setIsConnected] = useState(false)
-  const [checkingSetup, setCheckingSetup] = useState(true)
+  const [checkingAuth, setCheckingAuth] = useState(true)
 
   const { ws } = useWebSocket()
 
   useEffect(() => {
-    const checkSetup = async () => {
-      try {
-        const response = await fetch(`${API_BASE}/auth/status`, {
-          credentials: 'include',
-        })
-        if (response.ok) {
-          const data = await response.json()
-          // Redirect to setup if setup has not been completed
-          if (!data.setup_completed) {
-            window.location.href = '/setup'
-            return
-          }
-        }
-      } catch (e) {
-        // API not reachable, let the page handle it
-      }
-      setCheckingSetup(false)
-    }
-    checkSetup()
-  }, [])
-
-  useEffect(() => {
-    if (!checkingSetup && !isAuthenticated) {
+    if (accessToken || isAuthenticated) {
+      setCheckingAuth(false)
+    } else {
       router.push('/login')
     }
-  }, [checkingSetup, isAuthenticated, router])
+  }, [accessToken, isAuthenticated, router])
 
   const handleMetricsUpdate = useCallback((data: ServerMetrics) => {
     setMetricsHistory(prev => {
@@ -385,7 +365,7 @@ export default function DashboardPage() {
     return `${Math.floor(seconds / 60)}m ago`
   }
 
-  if (checkingSetup) {
+  if (checkingAuth) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -396,7 +376,7 @@ export default function DashboardPage() {
     )
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated && !accessToken) {
     return null
   }
 
