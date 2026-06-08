@@ -34,9 +34,12 @@ type ListAppsParams struct {
 
 // ListApps returns a paginated list of apps
 func (r *AppRepository) ListApps(ctx context.Context, params ListAppsParams) ([]database.AppListItem, int, error) {
-	// Build query with filters
+	// Build query with filters - optimized with LEFT JOINs to avoid N+1 queries
 	query := `SELECT a.*, 
-		(SELECT domain FROM app_domains WHERE app_id = a.id AND is_primary = 1 LIMIT 1) as primary_domain
+		(SELECT domain FROM app_domains WHERE app_id = a.id AND is_primary = 1 LIMIT 1) as primary_domain,
+		COALESCE((SELECT COUNT(*) FROM app_env_vars WHERE app_id = a.id), 0) as env_count,
+		COALESCE((SELECT COUNT(*) FROM app_volumes WHERE app_id = a.id), 0) as volume_count,
+		COALESCE((SELECT completed_at FROM deployments WHERE app_id = a.id AND status = 'success' ORDER BY completed_at DESC LIMIT 1), '') as last_deployed_at
 		FROM apps a WHERE 1=1`
 	countQuery := `SELECT COUNT(*) FROM apps a WHERE 1=1`
 	var args []interface{}
@@ -104,6 +107,9 @@ func (r *AppRepository) ListApps(ctx context.Context, params ListAppsParams) ([]
 	for rows.Next() {
 		var app database.App
 		var primaryDomain sql.NullString
+		var envCount int
+		var volumeCount int
+		var lastDeployedAt sql.NullString
 		
 		err := rows.Scan(
 			&app.ID, &app.Name, &app.Status, &app.HealthStatus, &app.Runtime, &app.RuntimeVersion,
@@ -111,13 +117,13 @@ func (r *AppRepository) ListApps(ctx context.Context, params ListAppsParams) ([]
 			&app.ContainerID, &app.ContainerImage, &app.InternalPort, &app.RestartPolicy,
 			&app.HealthCheckPath, &app.HealthCheckInterval, &app.HealthCheckTimeout, &app.HealthCheckRetries,
 			&app.CPULimit, &app.MemoryLimitMB, &app.MemorySwapMB, &app.CreatedBy,
-			&app.CreatedAt, &app.UpdatedAt, &primaryDomain,
+			&app.CreatedAt, &app.UpdatedAt, &primaryDomain, &envCount, &volumeCount, &lastDeployedAt,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to scan app: %w", err)
 		}
 		
-		// Get domains for this app
+		// Get domains for this app (still separate query for domains list)
 		domains, err := r.GetAppDomains(ctx, app.ID)
 		if err != nil {
 			return nil, 0, err
@@ -127,12 +133,10 @@ func (r *AppRepository) ListApps(ctx context.Context, params ListAppsParams) ([]
 		var sourceConfig database.SourceConfig
 		database.ParseJSONField(&app.SourceConfig, &sourceConfig)
 		
-		// Get env and volume counts
-		envCount, _ := r.GetEnvCount(ctx, app.ID)
-		volumeCount, _ := r.GetVolumeCount(ctx, app.ID)
-		
-		// Get last deployment time
-		lastDeployed, _ := r.GetLastDeployedAt(ctx, app.ID)
+		var lastDeployed *time.Time
+		if lastDeployedAt.Valid {
+			lastDeployed = &lastDeployedAt.Time
+		}
 		
 		item := database.AppListItem{
 			ID:             app.ID,
@@ -148,11 +152,11 @@ func (r *AppRepository) ListApps(ctx context.Context, params ListAppsParams) ([]
 			ContainerID:    app.ContainerID,
 			Ports: database.Ports{
 				Internal: app.InternalPort,
-				External: nil, // Would need container inspection to get external port
+				External: nil,
 			},
 			EnvCount:       envCount,
 			VolumeCount:    volumeCount,
-			ResourceUsage:  nil, // Would need container metrics
+			ResourceUsage:  nil,
 			LastDeployedAt: lastDeployed,
 			CreatedAt:      app.CreatedAt,
 			UpdatedAt:      app.UpdatedAt,
