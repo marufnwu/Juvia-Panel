@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -115,10 +116,11 @@ func (bm *BuildManager) CloneRepo(ctx context.Context, appID, repoURL, branch st
 	// Clone the repository
 	cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", branch, repoURL, repoDir)
 	cmd.Stdout = nil
-	cmd.Stderr = nil
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git clone failed: %w", err)
+		return "", fmt.Errorf("git clone failed: %w — %s", err, stderr.String())
 	}
 
 	return repoDir, nil
@@ -268,11 +270,19 @@ func (bm *BuildManager) buildWithNixpacks(ctx context.Context, result *BuildResu
 		return fmt.Errorf("nixpacks command failed: %w", err)
 	}
 
-	// Read output streams
-	go readStream(result, stdout, "stdout")
-	go readStream(result, stderr, "stderr")
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		readStream(result, stdout, "stdout")
+	}()
+	go func() {
+		defer wg.Done()
+		readStream(result, stderr, "stderr")
+	}()
 
-	// Wait for command to complete
+	wg.Wait()
+
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("nixpacks build failed: %w", err)
 	}

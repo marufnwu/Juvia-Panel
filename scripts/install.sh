@@ -235,72 +235,6 @@ mkdir -p "$DOWNLOAD_DIR"
 BUILD_FROM_SOURCE=true
 RELEASE_TAG=""
 
-if [[ "$BUILD_FROM_SOURCE" == "false" ]]; then
-    log_info "Extracting release bundle..."
-    mkdir -p "$DOWNLOAD_DIR/extracted"
-    tar xzf "$DOWNLOAD_DIR/juvia-release.tar.gz" -C "$DOWNLOAD_DIR/extracted/"
-
-    # Detect architecture
-    ARCH_SUFFIX=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
-
-    # Install binaries
-    for binary in juvia-api juvia-agent juvia-cli; do
-        BINARY_NAME="${binary}-linux-${ARCH_SUFFIX}"
-        if [[ -f "$DOWNLOAD_DIR/extracted/$BINARY_NAME" ]]; then
-            chmod +x "$DOWNLOAD_DIR/extracted/$BINARY_NAME"
-            mv "$DOWNLOAD_DIR/extracted/$BINARY_NAME" "/usr/local/bin/$binary"
-            log_info "Installed $binary"
-        else
-            log_warn "Binary $BINARY_NAME not found in bundle"
-            BUILD_FROM_SOURCE=true
-        fi
-    done
-
-    # Install UI
-    if [[ -f "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" ]]; then
-        rm -rf "$INSTALL_DIR/ui"
-        mkdir -p "$INSTALL_DIR/ui"
-        tar xzf "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" -C "$INSTALL_DIR/ui/"
-        chown -R juvia:juvia "$INSTALL_DIR/ui"
-        log_info "UI installed to $INSTALL_DIR/ui"
-    fi
-
-    # Copy migrations
-    if [[ -d "$DOWNLOAD_DIR/extracted/migrations" ]]; then
-        mkdir -p "$CONFIG_DIR/migrations"
-        cp "$DOWNLOAD_DIR/extracted/migrations/"*.sql "$CONFIG_DIR/migrations/" 2>/dev/null || true
-        chown -R juvia:juvia "$CONFIG_DIR/migrations"
-        log_info "Migrations copied to $CONFIG_DIR/migrations"
-    fi
-
-    # Copy Caddyfile
-    if [[ -f "$DOWNLOAD_DIR/extracted/config/Caddyfile" ]]; then
-        mkdir -p "$CONFIG_DIR/caddy"
-        cp "$DOWNLOAD_DIR/extracted/config/Caddyfile" "$CONFIG_DIR/caddy/Caddyfile"
-        log_info "Caddyfile copied to $CONFIG_DIR/caddy"
-    fi
-
-    # Install CLI and scripts from release branch
-    mkdir -p "$CONFIG_DIR/scripts"
-    SCRIPTS_BASE="https://raw.githubusercontent.com/marufnwu/Juvia-Panel/${REPO_BRANCH}/scripts"
-    for script in juvia install.sh update.sh uninstall.sh reset.sh; do
-        curl -sSL "$SCRIPTS_BASE/$script" -o "/tmp/$script" 2>/dev/null || true
-    done
-    if [[ -f "/tmp/juvia" ]]; then
-        chmod +x /tmp/juvia
-        mv /tmp/juvia "/usr/local/bin/juvia"
-        for script in install.sh update.sh uninstall.sh reset.sh; do
-            if [[ -f "/tmp/$script" ]]; then
-                chmod +x "/tmp/$script"
-                mv "/tmp/$script" "$CONFIG_DIR/scripts/$script"
-            fi
-        done
-        log_info "Installed juvia CLI and scripts"
-    fi
-
-    REPO_VERSION="$RELEASE_TAG"
-fi
-
 if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     log_info "Building from source..."
     TEMP_CLONE_DIR="/tmp/juvia-panel-clone"
@@ -440,6 +374,15 @@ EOF
 chmod 644 "$CONFIG_DIR/config.yml"
 log_info "Configuration generated at $CONFIG_DIR/config.yml"
 
+# Verify all required key files exist
+for keyfile in "$CONFIG_DIR/keys/master" "$CONFIG_DIR/jwt-secret" "$CONFIG_DIR/encryption-key"; do
+    if [[ ! -f "$keyfile" ]]; then
+        log_error "Required key file missing: $keyfile"
+        exit 1
+    fi
+done
+log_info "All key files verified"
+
 step "Initializing database"
 DB_PATH="$DATA_DIR/panel.db"
 
@@ -559,11 +502,12 @@ Requires=juvia-api.service
 Type=simple
 User=juvia
 Group=juvia
-ExecStart=/usr/bin/caddy run --config $CONFIG_DIR/caddy/Caddyfile --adapter caddyfile
+ExecStart=/usr/bin/caddy run --config $CONFIG_DIR/caddy/Caddyfile --adapter caddyfile --data $DATA_DIR/caddy
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
+EnvironmentFile=$CONFIG_DIR/env
 
 [Install]
 WantedBy=multi-user.target
@@ -588,13 +532,13 @@ if [[ "$SKIP_FIREWALL" == "false" ]] && command -v ufw &> /dev/null; then
 
     ufw allow 22/tcp comment 'SSH'
     ufw allow 80/tcp comment 'HTTP (for HTTPS redirect)'
-    ufw allow 2053/tcp comment 'Juvia Panel'
     ufw allow 443/tcp comment 'HTTPS'
 
     ufw delete allow 8080/tcp 2>/dev/null || true
+    ufw delete allow 2053/tcp 2>/dev/null || true
 
-    log_info "Firewall configured with SSH, HTTP, Juvia Panel (2053), HTTPS allowed"
-    FIREWALL_RULES_ADDED='[{"port":22,"protocol":"tcp","action":"allow"},{"port":80,"protocol":"tcp","action":"allow"},{"port":2053,"protocol":"tcp","action":"allow"},{"port":443,"protocol":"tcp","action":"allow"}]'
+    log_info "Firewall configured with SSH (22), HTTP (80), HTTPS (443) allowed"
+    FIREWALL_RULES_ADDED='[{"port":22,"protocol":"tcp","action":"allow"},{"port":80,"protocol":"tcp","action":"allow"},{"port":443,"protocol":"tcp","action":"allow"}]'
 else
     log_info "Firewall configuration skipped"
     FIREWALL_RULES_ADDED='[]'
@@ -634,7 +578,7 @@ log_info "Juvia Panel is running at:"
 if [[ -n "$DOMAIN" ]]; then
     log_info "  https://panel.$DOMAIN"
 else
-    log_info "  http://$SERVER_IP:2053"
+    log_info "  https://$SERVER_IP (or http://$SERVER_IP for initial access)"
 fi
 log_info ""
 log_info "Next steps:"

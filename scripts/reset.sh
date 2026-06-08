@@ -62,7 +62,7 @@ else
 fi
 
 log_step "Step 3: Starting API service"
-systemctl start juvia-api
+systemctl start juvia-api 2>/dev/null || true
 sleep 2
 
 log_step "Step 4: Verifying reset"

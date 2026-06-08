@@ -27,8 +27,6 @@ func RunMigrations(db *sqlx.DB) error {
 		return err
 	}
 	if len(files) == 0 {
-		// No migrations found anywhere - this is OK for a fresh install
-		// where migrations may be applied separately by the install script
 		return nil
 	}
 
@@ -38,12 +36,19 @@ func RunMigrations(db *sqlx.DB) error {
 
 	ctx := context.Background()
 
-	// Check if this is a fresh database (no schema_migrations table)
-	currentVersion := 0
-	var tableCount int
-	err = db.GetContext(ctx, &tableCount, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'")
-	if err == nil && tableCount > 0 {
-		_ = db.GetContext(ctx, &currentVersion, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations WHERE dirty = 0")
+	// Pre-create schema_migrations table if it doesn't exist.
+	// The first migration creates the real schema; subsequent migrations can record themselves.
+	_, _ = db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+		version INTEGER PRIMARY KEY,
+		dirty INTEGER NOT NULL DEFAULT 0,
+		applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+
+	// Get current applied version (ignore dirty rows — they indicate a failed migration)
+	var currentVersion int
+	err = db.GetContext(ctx, &currentVersion, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations WHERE dirty = 0")
+	if err != nil {
+		currentVersion = 0
 	}
 
 	for _, mf := range files {
@@ -67,14 +72,11 @@ func RunMigrations(db *sqlx.DB) error {
 			return fmt.Errorf("failed to execute migration %s: %w", mf.name, err)
 		}
 
-		var count int
-		err = tx.GetContext(ctx, &count, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'")
-		if err == nil && count > 0 {
-			_, err = tx.ExecContext(ctx, "INSERT INTO schema_migrations (version, dirty) VALUES (?, 0)", version)
-			if err != nil {
-				tx.Rollback()
-				return fmt.Errorf("failed to record migration %s: %w", mf.name, err)
-			}
+		// Record migration as applied. The table was created above, so this INSERT always works.
+		_, err = tx.ExecContext(ctx, "INSERT INTO schema_migrations (version, dirty) VALUES (?, 0)", version)
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to record migration %s: %w", mf.name, err)
 		}
 
 		if err := tx.Commit(); err != nil {

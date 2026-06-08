@@ -1,20 +1,26 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"panel-api/internal/agent"
 )
 
 // Caddy handles Caddy server configuration for app domains
 type Caddy struct {
-	configPath string
-	caddyfile   string
-	mu          sync.RWMutex
+	configPath     string
+	adminSocketPath string
+	caddyfile      string
+	mu             sync.RWMutex
 }
 
 // AppRoute represents a route configuration for an app
@@ -32,9 +38,15 @@ func New(configPath string) *Caddy {
 		configPath = "/etc/panel/caddy/Caddyfile"
 	}
 	return &Caddy{
-		configPath: configPath,
-		caddyfile:  "",
+		configPath:     configPath,
+		adminSocketPath: "/var/run/panel/caddy-admin.sock",
+		caddyfile:      "",
 	}
+}
+
+// SetAdminSocketPath sets the admin API socket path
+func (c *Caddy) SetAdminSocketPath(path string) {
+	c.adminSocketPath = path
 }
 
 // SetConfigPath sets the path to the Caddyfile
@@ -56,7 +68,7 @@ func (c *Caddy) GenerateCaddyfile(routes []AppRoute, globalEmail string) error {
 	// Global options
 	builder.WriteString("{\n")
 	builder.WriteString(fmt.Sprintf("  email %s\n", globalEmail))
-	builder.WriteString("  admin unix//var/run/panel/caddy-admin.sock\n")
+	builder.WriteString(fmt.Sprintf("  admin unix%s\n", c.adminSocketPath))
 	builder.WriteString("}\n\n")
 
 	// Write routes for each app
@@ -203,16 +215,40 @@ func (c *Caddy) removeRoute(content, domain string) string {
 
 // ReloadCaddy reloads the Caddy server configuration
 func (c *Caddy) ReloadCaddy() error {
-	// Validate the Caddyfile first
-	cmd := exec.Command("caddy", "validate", "--config", c.configPath)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("Caddyfile validation failed: %w", err)
+	// Convert Caddyfile to JSON via caddy adapt
+	adaptCmd := exec.Command("caddy", "adapt", "--config", c.configPath, "--pretty")
+	jsonConfig, err := adaptCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("Caddyfile adaptation failed: %w — %s", err, string(jsonConfig))
 	}
 
-	// Reload Caddy
-	cmd = exec.Command("caddy", "reload", "--config", c.configPath)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("Caddy reload failed: %w", err)
+	// POST the JSON config to the admin API
+	adminURL := fmt.Sprintf("http://unix%s/load", c.adminSocketPath)
+	req, err := http.NewRequest(http.MethodPost, adminURL, strings.NewReader(string(jsonConfig)))
+	if err != nil {
+		return fmt.Errorf("failed to create reload request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, "unix", c.adminSocketPath)
+			},
+		},
+		Timeout: 30 * time.Second,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("admin API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("admin API returned %d: %s", resp.StatusCode, string(body))
 	}
 
 	return nil

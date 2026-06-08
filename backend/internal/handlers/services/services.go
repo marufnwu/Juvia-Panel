@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -36,6 +38,13 @@ func NewHandler(db *database.DB, cfg *config.Config) *Handler {
 // SetProvisioner sets the provisioner for the handler
 func (h *Handler) SetProvisioner(p *agent.Provisioner) {
 	h.provisioner = p
+}
+
+func titleCase(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // ErrorResponse represents an error response
@@ -135,8 +144,7 @@ func (h *Handler) ListServices(c *gin.Context) {
 	var services []database.ServiceListItem
 	for rows.Next() {
 		var row ServiceRow
-		var lastBackupAt sql.NullTime
-		
+
 		err := rows.Scan(
 			&row.ID, &row.Name, &row.Type, &row.Version, &row.Status,
 			&row.InternalPort, &row.InternalHost, &row.ContainerID, &row.ContainerImage,
@@ -144,7 +152,7 @@ func (h *Handler) ListServices(c *gin.Context) {
 			&row.DataPath, &row.DataSizeMB,
 			&row.BackupEnabled, &row.BackupFrequency, &row.BackupTime,
 			&row.BackupRetentionDays, &row.BackupDestination,
-			&row.CreatedAt, &row.UpdatedAt, &lastBackupAt,
+			&row.CreatedAt, &row.UpdatedAt,
 			&row.ConnectedAppsCount,
 		)
 		if err != nil {
@@ -160,14 +168,10 @@ func (h *Handler) ListServices(c *gin.Context) {
 			Port:           row.InternalPort,
 			DataSizeMB:     row.DataSizeMB,
 			ConnectedApps:  row.ConnectedAppsCount,
-			ResourceUsage:  nil, // Would need container metrics
+			ResourceUsage:  nil,
 			LastBackupAt:   nil,
 			CreatedAt:      row.CreatedAt,
 			UpdatedAt:      row.UpdatedAt,
-		}
-		
-		if lastBackupAt.Valid {
-			item.LastBackupAt = &lastBackupAt.Time
 		}
 		
 		services = append(services, item)
@@ -265,68 +269,40 @@ func (h *Handler) GetService(c *gin.Context) {
 }
 
 func parseCredentials(credJSON string, creds *database.ServiceCredentials) {
-	// Parse JSON credentials
 	creds.Host = "localhost"
 	creds.Port = 0
 	creds.Database = ""
 	creds.Username = ""
 	creds.Password = ""
 	creds.ConnectionString = ""
-	
-	// Try to parse
-	if credJSON != "" {
-		// Simple parsing without json package dependency
-		creds.Host = extractJSONField(credJSON, "host")
-		creds.Database = extractJSONField(credJSON, "database")
-		creds.Username = extractJSONField(credJSON, "username")
-		creds.Password = extractJSONField(credJSON, "password")
-		
-		if portStr := extractJSONField(credJSON, "port"); portStr != "" {
-			if port, err := strconv.Atoi(portStr); err == nil {
-				creds.Port = port
-			}
-		}
-		
-		creds.ConnectionString = extractJSONField(credJSON, "connection_string")
-	}
-}
 
-func extractJSONField(json, field string) string {
-	search := `"` + field + `":`
-	idx := strings.Index(json, search)
-	if idx == -1 {
-		return ""
+	if credJSON == "" {
+		return
 	}
-	
-	start := idx + len(search)
-	// Skip whitespace
-	for start < len(json) && (json[start] == ' ' || json[start] == '\t') {
-		start++
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(credJSON), &raw); err != nil {
+		return
 	}
-	
-	if start >= len(json) {
-		return ""
+
+	if v, ok := raw["host"].(string); ok {
+		creds.Host = v
 	}
-	
-	// Check if string value
-	if json[start] == '"' {
-		start++
-		end := start
-		for end < len(json) && json[end] != '"' {
-			if json[end] == '\\' {
-				end++
-			}
-			end++
-		}
-		return json[start:end]
+	if v, ok := raw["database"].(string); ok {
+		creds.Database = v
 	}
-	
-	// Numeric or boolean value
-	end := start
-	for end < len(json) && json[end] != ',' && json[end] != '}' && json[end] != '\n' {
-		end++
+	if v, ok := raw["username"].(string); ok {
+		creds.Username = v
 	}
-	return strings.TrimSpace(json[start:end])
+	if v, ok := raw["password"].(string); ok {
+		creds.Password = v
+	}
+	if v, ok := raw["port"].(float64); ok {
+		creds.Port = int(v)
+	}
+	if v, ok := raw["connection_string"].(string); ok {
+		creds.ConnectionString = v
+	}
 }
 
 func maskPassword(password string) string {
@@ -531,18 +507,38 @@ func (h *Handler) CreateService(c *gin.Context) {
 	go func() {
 		ctx := context.Background()
 		var provisionErr error
+		var containerID, containerImage string
 
 		switch req.Type {
 		case "postgresql":
-			_, provisionErr = h.provisioner.ProvisionPostgreSQL(ctx, serviceID, password)
+			info, err := h.provisioner.ProvisionPostgreSQL(ctx, serviceID, password)
+			if err == nil {
+				containerID = info.ContainerID
+				containerImage = info.ContainerImage
+			}
+			provisionErr = err
 		case "mysql", "mariadb":
-			_, provisionErr = h.provisioner.ProvisionMySQL(ctx, serviceID, password)
+			info, err := h.provisioner.ProvisionMySQL(ctx, serviceID, password)
+			if err == nil {
+				containerID = info.ContainerID
+				containerImage = info.ContainerImage
+			}
+			provisionErr = err
 		case "mongodb":
-			_, provisionErr = h.provisioner.ProvisionMongoDB(ctx, serviceID, password)
+			info, err := h.provisioner.ProvisionMongoDB(ctx, serviceID, password)
+			if err == nil {
+				containerID = info.ContainerID
+				containerImage = info.ContainerImage
+			}
+			provisionErr = err
 		case "redis":
-			_, provisionErr = h.provisioner.ProvisionRedis(ctx, serviceID, password)
+			info, err := h.provisioner.ProvisionRedis(ctx, serviceID, password)
+			if err == nil {
+				containerID = info.ContainerID
+				containerImage = info.ContainerImage
+			}
+			provisionErr = err
 		default:
-			// Unsupported service type - mark as failed
 			provisionErr = fmt.Errorf("unsupported service type: %s", req.Type)
 		}
 
@@ -552,7 +548,13 @@ func (h *Handler) CreateService(c *gin.Context) {
 			fmt.Printf("Service provisioning failed: %v\n", provisionErr)
 		}
 
-		h.db.ExecContext(context.Background(), "UPDATE services SET status = ? WHERE id = ?", status, serviceID)
+		if containerID != "" {
+			h.db.ExecContext(context.Background(),
+				"UPDATE services SET status = ?, container_id = ?, container_image = ? WHERE id = ?",
+				status, containerID, containerImage, serviceID)
+		} else {
+			h.db.ExecContext(context.Background(), "UPDATE services SET status = ? WHERE id = ?", status, serviceID)
+		}
 	}()
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -900,7 +902,17 @@ func (h *Handler) RestartService(c *gin.Context) {
 			h.db.ExecContext(context.Background(), "UPDATE services SET status = 'failed' WHERE id = ?", serviceID)
 			return
 		}
-		h.db.ExecContext(context.Background(), "UPDATE services SET status = 'running' WHERE id = ?", serviceID)
+
+		for i := 0; i < 30; i++ {
+			status, err := h.provisioner.GetServiceStatus(context.Background(), serviceID)
+			if err == nil && status == "running" {
+				h.db.ExecContext(context.Background(), "UPDATE services SET status = 'running' WHERE id = ?", serviceID)
+				return
+			}
+			time.Sleep(time.Second)
+		}
+
+		h.db.ExecContext(context.Background(), "UPDATE services SET status = 'failed' WHERE id = ?", serviceID)
 	}()
 	
 	c.JSON(http.StatusOK, gin.H{
@@ -935,12 +947,26 @@ func (h *Handler) GetServiceLogs(c *gin.Context) {
 		return
 	}
 	
-	// In a real implementation, fetch logs from Docker container
-	// For now, return empty logs
+	// Get service logs from Docker
+	logs, err := h.provisioner.GetServiceLogs(ctx, serviceID, 100)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"service_id":  serviceID,
+			"lines":       []interface{}{},
+			"total_lines": 0,
+		})
+		return
+	}
+
+	lines := make([]interface{}, len(logs))
+	for i, l := range logs {
+		lines[i] = l
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"service_id":  serviceID,
-		"lines":        []interface{}{},
-		"total_lines":  0,
+		"lines":       lines,
+		"total_lines": len(lines),
 	})
 }
 
@@ -980,11 +1006,42 @@ func (h *Handler) TestConnection(c *gin.Context) {
 		})
 		return
 	}
-	
+
+	var creds database.ServiceCredentials
+	parseCredentials(svc.Credentials, &creds)
+
+	host := creds.Host
+	if host == "" {
+		host = "localhost"
+	}
+	port := creds.Port
+	if port == 0 {
+		port = svc.InternalPort
+	}
+	if port == 0 {
+		port = getDefaultPort(svc.Type)
+	}
+
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	start := time.Now()
+
+	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	latency := time.Since(start).Milliseconds()
+
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success":    false,
+			"latency_ms": latency,
+			"message":     fmt.Sprintf("Connection to %s failed: %s", addr, err.Error()),
+		})
+		return
+	}
+	conn.Close()
+
 	c.JSON(http.StatusOK, gin.H{
 		"success":   true,
-		"latency_ms": 1,
-		"message":    fmt.Sprintf("Connected to %s %s.", strings.Title(svc.Type), svc.Version),
+		"latency_ms": latency,
+		"message":    fmt.Sprintf("Connected to %s %s at %s.", titleCase(svc.Type), svc.Version, addr),
 	})
 }
 
@@ -1118,8 +1175,8 @@ func (h *Handler) ConnectApp(c *gin.Context) {
 	_, err = h.db.ExecContext(ctx, `
 		INSERT INTO service_app_links (service_id, app_id, connection_env_key, created_at)
 		VALUES (?, ?, ?, ?)
-		ON CONFLICT(service_id, app_id) DO UPDATE SET connection_env_key = ?
-	`, serviceID, req.AppID, envKey, now, envKey)
+		ON CONFLICT(service_id, app_id) DO UPDATE SET connection_env_key = ?, created_at = ?
+	`, serviceID, req.AppID, envKey, now, envKey, now)
 	
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{

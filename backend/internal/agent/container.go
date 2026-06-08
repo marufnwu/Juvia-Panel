@@ -52,6 +52,10 @@ func (cm *ContainerManager) SetNetworkName(name string) {
 
 // CreateAndStart creates and starts a container
 func (cm *ContainerManager) CreateAndStart(ctx context.Context, params RunParams) (*RunResult, error) {
+	if len(params.Ports) == 0 {
+		return nil, fmt.Errorf("no ports specified")
+	}
+
 	// Ensure network exists
 	if err := cm.EnsureNetwork(ctx); err != nil {
 		return nil, fmt.Errorf("failed to ensure network: %w", err)

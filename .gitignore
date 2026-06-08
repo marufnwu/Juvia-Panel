@@ -60,6 +60,10 @@ tmp/
 temp/
 *.tmp
 
+# Leftover artifacts (never commit these)
+*service.tmp
+*.service.tmp
+
 # Build artifacts
 dist/
 build/

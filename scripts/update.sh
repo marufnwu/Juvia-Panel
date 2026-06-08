@@ -64,8 +64,13 @@ rollback_update() {
     fi
 
     if [[ -f "$DATA_DIR/config-backup.tar.gz" ]]; then
-        tar xzf "$DATA_DIR/config-backup.tar.gz" -C / 2>/dev/null || true
-        log_info "Restored configuration backup"
+        BACKUP_SIZE=$(stat -c%s "$DATA_DIR/config-backup.tar.gz" 2>/dev/null || echo 0)
+        if [[ "$BACKUP_SIZE" -gt 1024 ]]; then
+            tar xzf "$DATA_DIR/config-backup.tar.gz" -C / 2>/dev/null || true
+            log_info "Restored configuration backup"
+        else
+            log_warn "Config backup looks too small (${BACKUP_SIZE} bytes), skipping restore"
+        fi
     fi
 
     # Restore UI if backup exists

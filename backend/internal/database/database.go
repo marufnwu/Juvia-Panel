@@ -25,7 +25,7 @@ func New(cfg *config.Config) (*sqlx.DB, error) {
 	}
 
 	// Connect to SQLite database
-	db, err := sqlx.Connect("sqlite", cfg.DBPath+"?_journal_mode=WAL&_foreign_keys=ON")
+	db, err := sqlx.Connect("sqlite", cfg.DBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database at %s: %w", cfg.DBPath, err)
 	}
@@ -34,6 +34,12 @@ func New(cfg *config.Config) (*sqlx.DB, error) {
 	// This controls how long SQLite waits for a lock (5 seconds)
 	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
 		return nil, fmt.Errorf("failed to set busy_timeout: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
+		return nil, fmt.Errorf("failed to set journal_mode: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return nil, fmt.Errorf("failed to set foreign_keys: %w", err)
 	}
 
 	// Configure connection pool for SQLite

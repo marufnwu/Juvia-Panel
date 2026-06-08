@@ -136,6 +136,7 @@ log_step "Step 2: Stopping services"
 systemctl stop juvia-caddy 2>/dev/null || true
 systemctl stop juvia-api 2>/dev/null || true
 systemctl stop juvia-agent 2>/dev/null || true
+systemctl stop caddy 2>/dev/null || true
 log_info "All Juvia Panel services stopped"
 
 log_step "Step 3: Removing Docker containers and images"
@@ -160,6 +161,7 @@ log_step "Step 4: Removing systemd services"
 systemctl disable juvia-agent 2>/dev/null || true
 systemctl disable juvia-api 2>/dev/null || true
 systemctl disable juvia-caddy 2>/dev/null || true
+systemctl disable caddy 2>/dev/null || true
 
 rm -f /etc/systemd/system/juvia-agent.service
 rm -f /etc/systemd/system/juvia-api.service

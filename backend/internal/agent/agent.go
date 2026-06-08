@@ -35,6 +35,11 @@ const (
 // Default socket path
 const DefaultSocketPath = "/var/run/panel/agent.sock"
 
+// DefaultAgentTCPPort is the TCP port the agent listens on when Unix sockets are
+// not available (e.g., Windows or container environments). It must not collide
+// with the API port (default 9090).
+const DefaultAgentTCPPort = 9091
+
 // Agent handles Unix socket communication and command execution
 type Agent struct {
 	socketPath string
@@ -94,11 +99,17 @@ func (a *Agent) Start() error {
 	var err error
 
 	if runtime.GOOS == "windows" {
-		listener, err = net.Listen("tcp", "127.0.0.1:9090")
-		if err != nil {
-			return fmt.Errorf("failed to listen on TCP port: %w", err)
+		// On Windows use TCP; port must not collide with the API (default 9090).
+		// Use PANEL_AGENT_TCP_PORT env var or DefaultAgentTCPPort (9091).
+		port := os.Getenv("PANEL_AGENT_TCP_PORT")
+		if port == "" {
+			port = fmt.Sprintf("%d", DefaultAgentTCPPort)
 		}
-		log.Printf("Agent listening on TCP 127.0.0.1:9090 (Windows mode)")
+		listener, err = net.Listen("tcp", "127.0.0.1:"+port)
+		if err != nil {
+			return fmt.Errorf("failed to listen on TCP port %s: %w", port, err)
+		}
+		log.Printf("Agent listening on TCP 127.0.0.1:%s (Windows mode)", port)
 	} else {
 		listener, err = net.Listen("unix", a.socketPath)
 		if err != nil {
@@ -530,15 +541,17 @@ type Client struct {
 	tcpAddress string
 }
 
-// NewClient creates a new agent client
+// NewClient creates a new agent client.
+// It defaults to the Unix socket path and falls back to TCP on the default agent port.
+// The caller should call Connect() before issuing commands to pre-warm the connection.
 func NewClient(socketPath string) *Client {
 	if socketPath == "" {
 		socketPath = DefaultSocketPath
 	}
 	return &Client{
 		socketPath:  socketPath,
-		useTCP:      false,
-		tcpAddress:  "127.0.0.1:9090",
+		useTCP:     false,
+		tcpAddress: fmt.Sprintf("127.0.0.1:%d", DefaultAgentTCPPort),
 	}
 }
 
@@ -546,18 +559,28 @@ func NewClient(socketPath string) *Client {
 func (c *Client) Connect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.connectLocked()
+}
 
-	// Try Unix socket first
-	conn, err := net.DialTimeout("unix", c.socketPath, 5*time.Second)
+// ConnectContext establishes connection to the agent with a context timeout.
+func (c *Client) ConnectContext(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Unix socket dial with context deadline
+	unixDialer := net.Dialer{Timeout: 5 * time.Second }
+	conn, err := unixDialer.DialContext(ctx, "unix", c.socketPath)
 	if err == nil {
 		c.conn = conn
+		c.useTCP = false
 		return nil
 	}
 
-	// Fallback to TCP on Windows or if Unix socket fails
-	conn, err = net.DialTimeout("tcp", c.tcpAddress, 5*time.Second)
+	// Fallback to TCP
+	tcpDialer := net.Dialer{Timeout: 5 * time.Second }
+	conn, err = tcpDialer.DialContext(ctx, "tcp", c.tcpAddress)
 	if err != nil {
-		return fmt.Errorf("failed to connect to agent (tried unix socket %s and tcp %s: %w)", c.socketPath, c.tcpAddress, err)
+		return fmt.Errorf("agent unreachable (unix: %s, tcp: %s): %w", c.socketPath, c.tcpAddress, err)
 	}
 	c.conn = conn
 	c.useTCP = true
@@ -574,13 +597,21 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// sendCommand sends a command and waits for response
+// sendCommand sends a command and waits for response.
+// If the connection is dead, it reconnects once and retries before returning an error.
 func (c *Client) sendCommand(cmdType string, params interface{}) (Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.conn == nil {
-		return Response{}, fmt.Errorf("not connected")
+	ensureConnected := func() error {
+		if c.conn != nil {
+			return nil
+		}
+		return c.connectLocked()
+	}
+
+	if err := ensureConnected(); err != nil {
+		return Response{}, fmt.Errorf("not connected (tried unix socket %s and tcp %s: %w)", c.socketPath, c.tcpAddress, err)
 	}
 
 	cmd := Command{
@@ -589,16 +620,71 @@ func (c *Client) sendCommand(cmdType string, params interface{}) (Response, erro
 		Params:    mustMarshal(params),
 	}
 
-	if err := json.NewEncoder(c.conn).Encode(cmd); err != nil {
-		return Response{}, fmt.Errorf("failed to send command: %w", err)
+	// Helper to encode and decode with a live connection check
+	send := func() (Response, error) {
+		if err := json.NewEncoder(c.conn).Encode(cmd); err != nil {
+			return Response{}, fmt.Errorf("failed to send command: %w", err)
+		}
+		var resp Response
+		if err := json.NewDecoder(c.conn).Decode(&resp); err != nil {
+			return Response{}, fmt.Errorf("failed to read response: %w", err)
+		}
+		return resp, nil
 	}
 
-	var resp Response
-	if err := json.NewDecoder(c.conn).Decode(&resp); err != nil {
-		return Response{}, fmt.Errorf("failed to read response: %w", err)
+	// Try once; if it fails due to a closed connection, reconnect and retry once.
+	resp, err := send()
+	if err != nil {
+		// Check if it's a "use of closed network connection" or similar
+		if isConnClosedErr(err) {
+			if reconnErr := c.connectLocked(); reconnErr == nil {
+				resp, err = send()
+			}
+		}
+		if err != nil {
+			// Don't leave a broken connection around
+			if c.conn != nil {
+				c.conn.Close()
+				c.conn = nil
+			}
+			return Response{}, fmt.Errorf("agent command %s failed after reconnect: %w", cmdType, err)
+		}
 	}
 
 	return resp, nil
+}
+
+// isConnClosedErr returns true if the error indicates the connection was closed.
+func isConnClosedErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "use of closed") ||
+		strings.Contains(errStr, "connection reset") ||
+		strings.Contains(errStr, "broken pipe") ||
+		strings.Contains(errStr, "i/o timeout") ||
+		strings.Contains(errStr, "EOF")
+}
+
+// connectLocked establishes a new connection. Caller must hold c.mu.
+func (c *Client) connectLocked() error {
+	// Try Unix socket first
+	conn, err := net.DialTimeout("unix", c.socketPath, 5*time.Second)
+	if err == nil {
+		c.conn = conn
+		c.useTCP = false
+		return nil
+	}
+
+	// Fallback to TCP
+	conn, err = net.DialTimeout("tcp", c.tcpAddress, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("failed to connect to agent (tried unix socket %s and tcp %s: %w)", c.socketPath, c.tcpAddress, err)
+	}
+	c.conn = conn
+	c.useTCP = true
+	return nil
 }
 
 // Ping checks agent connectivity

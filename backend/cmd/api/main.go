@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -42,6 +43,17 @@ var (
 )
 
 func main() {
+	// Accept an optional "serve" subcommand for forward compatibility.
+	// Without it, the binary runs as the API server (backward compatible).
+	args := flag.Args()
+	if len(args) > 0 && args[0] == "serve" {
+		args = args[1:]
+	}
+
+	// Re-parse flags with args if needed
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	flag.CommandLine.Parse(args)
+
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
@@ -61,9 +73,11 @@ func main() {
 	defer db.Close()
 
 	// Run migrations
+	log.Println("Running database migrations...")
 	if err := database.RunMigrations(db); err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
+	log.Println("Migrations complete")
 
 	// Initialize WebSocket hub
 	wsHub = websocket.NewHub(cfg)
@@ -75,6 +89,17 @@ func main() {
 		socketPath = "/var/run/panel/agent.sock"
 	}
 	agentClient = agent.NewClient(socketPath)
+
+	// Pre-warm agent connection; log warning but don't crash if agent is not yet up.
+	log.Printf("Connecting to agent at %s...", socketPath)
+	ctxConnect, cancelConnect := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := agentClient.ConnectContext(ctxConnect); err != nil {
+		log.Printf("WARNING: Agent is not reachable at %s: %v", socketPath, err)
+		log.Printf("WARNING: Agent-dependent features (app deployments, container management) will be unavailable until the agent starts.")
+	} else {
+		log.Printf("Agent connected")
+	}
+	cancelConnect()
 
 	// Initialize Caddy manager
 	caddy := proxy.New(cfg.CaddyConfig)
@@ -827,7 +852,8 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		log.Printf("Starting API server on %s (version %s)", addr, cfg.Version)
+		addr := fmt.Sprintf("%s:%d", cfg.APIHost, cfg.APIPort)
+		log.Printf("Starting Juvia API server on %s (version %s)", addr, cfg.Version)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
 		}

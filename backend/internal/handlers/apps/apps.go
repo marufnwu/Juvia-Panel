@@ -981,6 +981,13 @@ func strPtr(s string) *string {
 	return &s
 }
 
+func derefOrEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 func isValidAppName(name string) bool {
 	if len(name) < 1 || len(name) > 64 {
 		return false
@@ -1825,7 +1832,7 @@ func (h *Handler) executeDeployment(app *database.App, deployment *database.Depl
 		AppID:         appID,
 		AppName:       app.Name,
 		RepoURL:       sourceConfig.RepoURL,
-		Branch:        *deployment.Branch,
+		Branch:        derefOrEmpty(deployment.Branch),
 		Commit:        "",
 		BuildStrategy: app.BuildStrategy,
 		BuildCommand:  buildConfig.BuildCommand,
@@ -1922,12 +1929,17 @@ func (h *Handler) executeDeployment(app *database.App, deployment *database.Depl
 	// Update app with container info
 	h.repo.UpdateAppContainer(ctx, appID, runResult.ContainerID, buildResult.ImageName, runResult.Port)
 
+	healthCheckPath := "/"
+	if buildConfig.HealthCheck.Path != "" {
+		healthCheckPath = buildConfig.HealthCheck.Path
+	}
+
 	// Start health check for the container
 	h.agent.StartHealthCheck(ctx, agent.HealthCheckParams{
 		AppID:       appID,
 		ContainerID: runResult.ContainerID,
 		Port:        runResult.Port,
-		Path:        "/",
+		Path:        healthCheckPath,
 		Interval:    30,
 		Timeout:     5,
 		Retries:     3,
@@ -2114,7 +2126,7 @@ func (h *Handler) executeRollback(app *database.App, deployment *database.Deploy
 		AppID:         appID,
 		AppName:       app.Name,
 		RepoURL:       sourceConfig.RepoURL,
-		Branch:        *deployment.Branch,
+		Branch:        derefOrEmpty(deployment.Branch),
 		Commit:        "",
 		BuildStrategy: app.BuildStrategy,
 		BuildCommand:  buildConfig.BuildCommand,
