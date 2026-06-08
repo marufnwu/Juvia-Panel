@@ -181,47 +181,9 @@ case "$ARCH" in
     *) log_error "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
-BUILD_FROM_SOURCE=false
-
-if [[ "$TARGET_VERSION" == "latest" ]]; then
-    RELEASE_TAG=$(curl -sf "https://api.github.com/repos/marufnwu/Juvia-Panel/releases/latest" | jq -r '.tag_name // empty' 2>/dev/null || echo "")
-else
-    RELEASE_TAG="$TARGET_VERSION"
-fi
-
-if [[ -z "$RELEASE_TAG" ]]; then
-    log_warn "Could not determine release version, will build from source"
-    BUILD_FROM_SOURCE=true
-else
-    log_info "Downloading release: $RELEASE_TAG"
-    BASE_URL="https://github.com/marufnwu/Juvia-Panel/releases/download/${RELEASE_TAG}"
-
-    if curl -sfL "${BASE_URL}/juvia-release-${ARCH_SUFFIX}.tar.gz" -o "$DOWNLOAD_DIR/juvia-release.tar.gz"; then
-        mkdir -p "$DOWNLOAD_DIR/extracted"
-        tar xzf "$DOWNLOAD_DIR/juvia-release.tar.gz" -C "$DOWNLOAD_DIR/extracted/"
-
-        MISSING_CRITICAL=0
-        for binary in juvia-api juvia-agent; do
-            if [[ ! -f "$DOWNLOAD_DIR/extracted/$binary" ]]; then
-                log_warn "Critical binary $binary not found in bundle"
-                MISSING_CRITICAL=1
-            else
-                chmod +x "$DOWNLOAD_DIR/extracted/$binary"
-            fi
-        done
-        # juvia-cli is optional
-        if [[ -f "$DOWNLOAD_DIR/extracted/juvia-cli" ]]; then
-            chmod +x "$DOWNLOAD_DIR/extracted/juvia-cli"
-        fi
-        if [[ $MISSING_CRITICAL -eq 1 ]]; then
-            log_warn "Critical binaries missing from release bundle, will build from source"
-            BUILD_FROM_SOURCE=true
-        fi
-    else
-        log_warn "Failed to download release bundle, will build from source"
-        BUILD_FROM_SOURCE=true
-    fi
-fi
+# Always build from source to ensure latest code is used
+BUILD_FROM_SOURCE=true
+RELEASE_TAG=""
 
 if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     TEMP_CLONE="/tmp/juvia-panel-update"
@@ -259,9 +221,9 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     mkdir -p "$DOWNLOAD_DIR/extracted/migrations"
     cp "$TEMP_CLONE/backend/migrations/"*.sql "$DOWNLOAD_DIR/extracted/migrations/" 2>/dev/null || true
 
-    # Copy Caddyfile directly to final location
-    mkdir -p "$CONFIG_DIR/caddy"
-    cp "$TEMP_CLONE/backend/config/Caddyfile" "$CONFIG_DIR/caddy/Caddyfile" 2>/dev/null || true
+    # Copy Caddyfile to download directory for deployment
+    mkdir -p "$DOWNLOAD_DIR/extracted/config"
+    cp "$TEMP_CLONE/backend/config/Caddyfile" "$DOWNLOAD_DIR/extracted/config/Caddyfile" 2>/dev/null || true
 
     rm -rf "$TEMP_CLONE"
     NEW_VERSION="${NEW_VERSION:-$RELEASE_TAG}"
