@@ -259,6 +259,10 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     mkdir -p "$DOWNLOAD_DIR/extracted/migrations"
     cp "$TEMP_CLONE/backend/migrations/"*.sql "$DOWNLOAD_DIR/extracted/migrations/" 2>/dev/null || true
 
+    # Copy Caddyfile directly to final location
+    mkdir -p "$CONFIG_DIR/caddy"
+    cp "$TEMP_CLONE/backend/config/Caddyfile" "$CONFIG_DIR/caddy/Caddyfile" 2>/dev/null || true
+
     rm -rf "$TEMP_CLONE"
     NEW_VERSION="${NEW_VERSION:-$RELEASE_TAG}"
 else
