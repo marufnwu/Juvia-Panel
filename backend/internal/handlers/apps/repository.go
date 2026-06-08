@@ -124,10 +124,12 @@ func (r *AppRepository) ListApps(ctx context.Context, params ListAppsParams) ([]
 		}
 		
 		// Get domains for this app (still separate query for domains list)
-		domains, err := r.GetAppDomains(ctx, app.ID)
-		if err != nil {
-			return nil, 0, err
-		}
+		// TODO: This is causing timeout issues - temporarily disabled for debugging
+		// domains, err := r.GetAppDomains(ctx, app.ID)
+		// if err != nil {
+		// 	return nil, 0, err
+		// }
+		domains := []string{}
 		
 		// Parse source config
 		var sourceConfig database.SourceConfig
