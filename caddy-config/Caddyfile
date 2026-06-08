@@ -44,7 +44,7 @@
     }
 
     # SPA fallback - serve index.html for client-side routing
-    handle {
+    route {
         root /opt/panel/ui/out
         try_files {path} {path}/index.html /index.html
         file_server

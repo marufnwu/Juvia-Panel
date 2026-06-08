@@ -141,7 +141,7 @@ func (c *Caddy) writePanelUIBlock(builder *strings.Builder) {
 	builder.WriteString("    }\n\n")
 
 	builder.WriteString("    # SPA fallback - serve index.html for client-side routing\n")
-	builder.WriteString("    handle {\n")
+	builder.WriteString("    route {\n")
 	builder.WriteString("        root /opt/panel/ui/out\n")
 	builder.WriteString("        try_files {path} {path}/index.html /index.html\n")
 	builder.WriteString("        file_server\n")
