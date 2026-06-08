@@ -34,7 +34,7 @@
     }
 
     # Proxy API requests to Go backend
-    handle /api/** {
+    handle /api* {
         reverse_proxy localhost:9090
     }
 
@@ -44,9 +44,7 @@
     }
 
     # SPA fallback - serve index.html for client-side routing
-    route {
-        root /opt/panel/ui/out
-        try_files {path} {path}/index.html /index.html
-        file_server
-    }
+    root /opt/panel/ui/out
+    try_files {path} {path}/index.html /index.html
+    file_server
 }
