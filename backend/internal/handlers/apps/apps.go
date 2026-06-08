@@ -49,7 +49,8 @@ type ErrorResponse struct {
 // ListApps handles GET /apps
 func (h *Handler) ListApps(c *gin.Context) {
 	requestID := c.GetString("request_id")
-	ctx := context.Background()
+	ctx, cancel := database.WithQueryTimeout(context.Background())
+	defer cancel()
 	
 	// Parse query parameters
 	params := ListAppsParams{
