@@ -34,13 +34,13 @@ export default function SetupPage() {
       const { setupCompleted } = await checkUsersExist()
       if (setupCompleted) {
         // Setup already completed, redirect to login
-        router.push('/login')
+        window.location.href = '/login'
       } else {
         setIsCheckingUsers(false)
       }
     }
     checkSetup()
-  }, [checkUsersExist, router])
+  }, [checkUsersExist])
 
   // If already authenticated, redirect to dashboard
   useEffect(() => {

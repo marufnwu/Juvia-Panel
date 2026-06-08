@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Server, Loader2, Eye, EyeOff } from 'lucide-react'
@@ -18,6 +18,20 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [isChecking, setIsChecking] = useState(true)
+
+  // Redirect to setup if not completed
+  useEffect(() => {
+    async function check() {
+      const { setupCompleted } = await checkUsersExist()
+      if (!setupCompleted) {
+        window.location.href = '/setup'
+        return
+      }
+      setIsChecking(false)
+    }
+    check()
+  }, [checkUsersExist])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -48,6 +62,14 @@ export default function LoginPage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  if (isChecking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+        <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
+      </div>
+    )
   }
 
   return (

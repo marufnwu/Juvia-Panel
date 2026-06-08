@@ -260,7 +260,7 @@ export default function DashboardPage() {
           const data = await response.json()
           // Redirect to setup if setup has not been completed
           if (!data.setup_completed) {
-            router.push('/setup')
+            window.location.href = '/setup'
             return
           }
         }
@@ -270,7 +270,7 @@ export default function DashboardPage() {
       setCheckingSetup(false)
     }
     checkSetup()
-  }, [router])
+  }, [])
 
   useEffect(() => {
     if (!checkingSetup && !isAuthenticated) {
