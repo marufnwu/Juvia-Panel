@@ -105,6 +105,21 @@ func main() {
 	caddy := proxy.New(cfg.CaddyConfig)
 	caddyMgr = proxy.NewCaddyManager(caddy, agentClient)
 
+	// Generate initial Caddyfile with panel UI routes and admin socket enabled
+	panelEmail := cfg.Email
+	if panelEmail == "" {
+		panelEmail = "admin@localhost"
+	}
+	if err := caddy.GenerateCaddyfile([]proxy.AppRoute{}, panelEmail); err != nil {
+		log.Printf("WARNING: Failed to generate initial Caddyfile: %v", err)
+	} else {
+		if err := caddy.ReloadCaddy(); err != nil {
+			log.Printf("WARNING: Failed to reload Caddy: %v", err)
+		} else {
+			log.Println("Caddy reloaded with panel UI routes")
+		}
+	}
+
 	// Create Gin router
 	router := gin.New()
 

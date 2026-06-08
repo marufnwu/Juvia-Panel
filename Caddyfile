@@ -1,5 +1,5 @@
 {
-    admin off
+    admin unix//var/run/panel/caddy-admin.sock
     log {
         level INFO
     }

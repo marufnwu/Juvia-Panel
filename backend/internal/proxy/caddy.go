@@ -17,10 +17,11 @@ import (
 
 // Caddy handles Caddy server configuration for app domains
 type Caddy struct {
-	configPath     string
+	configPath      string
 	adminSocketPath string
-	caddyfile      string
-	mu             sync.RWMutex
+	panelUIPort     int
+	caddyfile       string
+	mu              sync.RWMutex
 }
 
 // AppRoute represents a route configuration for an app
@@ -38,9 +39,10 @@ func New(configPath string) *Caddy {
 		configPath = "/etc/panel/caddy/Caddyfile"
 	}
 	return &Caddy{
-		configPath:     configPath,
+		configPath:      configPath,
 		adminSocketPath: "/var/run/panel/caddy-admin.sock",
-		caddyfile:      "",
+		panelUIPort:     2053,
+		caddyfile:       "",
 	}
 }
 
@@ -54,6 +56,11 @@ func (c *Caddy) SetConfigPath(path string) {
 	c.configPath = path
 }
 
+// SetPanelUIPort sets the port for the panel UI
+func (c *Caddy) SetPanelUIPort(port int) {
+	c.panelUIPort = port
+}
+
 // GenerateCaddyfile generates a Caddyfile from app routes
 func (c *Caddy) GenerateCaddyfile(routes []AppRoute, globalEmail string) error {
 	c.mu.Lock()
@@ -65,11 +72,17 @@ func (c *Caddy) GenerateCaddyfile(routes []AppRoute, globalEmail string) error {
 
 	var builder strings.Builder
 
-	// Global options
+	// Global options - admin socket ENABLED for dynamic reloads
 	builder.WriteString("{\n")
 	builder.WriteString(fmt.Sprintf("  email %s\n", globalEmail))
 	builder.WriteString(fmt.Sprintf("  admin unix%s\n", c.adminSocketPath))
+	builder.WriteString("  log {\n")
+	builder.WriteString("    level INFO\n")
+	builder.WriteString("  }\n")
 	builder.WriteString("}\n\n")
+
+	// Panel UI site block
+	c.writePanelUIBlock(&builder)
 
 	// Write routes for each app
 	for _, route := range routes {
@@ -90,6 +103,50 @@ func (c *Caddy) GenerateCaddyfile(routes []AppRoute, globalEmail string) error {
 	}
 
 	return nil
+}
+
+// writePanelUIBlock writes the panel UI site block to the Caddyfile
+func (c *Caddy) writePanelUIBlock(builder *strings.Builder) {
+	port := c.panelUIPort
+	builder.WriteString(fmt.Sprintf(":%d {\n", port))
+
+	builder.WriteString("    header {\n")
+	builder.WriteString("        X-Frame-Options \"DENY\"\n")
+	builder.WriteString("        X-Content-Type-Options \"nosniff\"\n")
+	builder.WriteString("        X-XSS-Protection \"1; mode=block\"\n")
+	builder.WriteString("        Referrer-Policy \"strict-origin-when-cross-origin\"\n")
+	builder.WriteString("        Permissions-Policy \"camera=(), microphone=(), geolocation=()\"\n")
+	builder.WriteString("        -Server\n")
+	builder.WriteString("        Content-Security-Policy \"default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'\"\n")
+	builder.WriteString("    }\n\n")
+
+	builder.WriteString("    handle /_next/* {\n")
+	builder.WriteString("        file_server {\n")
+	builder.WriteString("            root /opt/panel/ui/out\n")
+	builder.WriteString("        }\n")
+	builder.WriteString("    }\n\n")
+
+	builder.WriteString("    handle /static/* {\n")
+	builder.WriteString("        file_server {\n")
+	builder.WriteString("            root /opt/panel/ui/out\n")
+	builder.WriteString("        }\n")
+	builder.WriteString("    }\n\n")
+
+	builder.WriteString("    handle /api/* {\n")
+	builder.WriteString("        reverse_proxy localhost:9090\n")
+	builder.WriteString("    }\n\n")
+
+	builder.WriteString("    handle /health {\n")
+	builder.WriteString("        reverse_proxy localhost:9090\n")
+	builder.WriteString("    }\n\n")
+
+	builder.WriteString("    handle {\n")
+	builder.WriteString("        try_files {path} {path}/index.html /index.html\n")
+	builder.WriteString("        file_server {\n")
+	builder.WriteString("            root /opt/panel/ui/out\n")
+	builder.WriteString("        }\n")
+	builder.WriteString("    }\n")
+	builder.WriteString("}\n\n")
 }
 
 // addRoute adds a route block for an app
@@ -139,9 +196,12 @@ func (c *Caddy) AddRoute(route AppRoute) error {
 		existing = c.removeRoute(existing, route.Domain)
 	}
 
+	// Extract header (global options + panel UI block)
+	header := c.extractHeader(existing)
+
 	// Add new route
 	var builder strings.Builder
-	builder.WriteString(existing)
+	builder.WriteString(header)
 	c.addRoute(&builder, route)
 
 	c.caddyfile = builder.String()
@@ -152,6 +212,50 @@ func (c *Caddy) AddRoute(route AppRoute) error {
 	}
 
 	return nil
+}
+
+// extractHeader extracts the global options and panel UI block from a Caddyfile
+// Everything up to and including the panel UI block is considered the "header"
+func (c *Caddy) extractHeader(content string) string {
+	// Find the panel UI block start (e.g., ":2053 {")
+	panelUIStart := fmt.Sprintf(":%d {", c.panelUIPort)
+	idx := strings.Index(content, panelUIStart)
+	if idx == -1 {
+		// No panel UI block found, generate the header
+		var builder strings.Builder
+		// Write global options
+		builder.WriteString("{\n")
+		builder.WriteString(fmt.Sprintf("  admin unix%s\n", c.adminSocketPath))
+		builder.WriteString("  log {\n")
+		builder.WriteString("    level INFO\n")
+		builder.WriteString("  }\n")
+		builder.WriteString("}\n\n")
+		// Write panel UI block
+		c.writePanelUIBlock(&builder)
+		return builder.String()
+	}
+
+	// Find the end of the panel UI block
+	braceCount := 0
+	inBlock := false
+	for i := idx; i < len(content); i++ {
+		if content[i] == '{' {
+			braceCount++
+			inBlock = true
+		} else if content[i] == '}' {
+			braceCount--
+			if inBlock && braceCount == 0 {
+				// Return content up to and including the panel UI block
+				return content[:i+1] + "\n\n"
+			}
+		}
+	}
+
+	// If we couldn't find the end, return what we have plus the panel UI block
+	var builder strings.Builder
+	builder.WriteString(content[:idx])
+	c.writePanelUIBlock(&builder)
+	return builder.String()
 }
 
 // RemoveRoute removes a route for an app
@@ -215,6 +319,16 @@ func (c *Caddy) removeRoute(content, domain string) string {
 
 // ReloadCaddy reloads the Caddy server configuration
 func (c *Caddy) ReloadCaddy() error {
+	// Try admin API first
+	if err := c.reloadViaAdminAPI(); err != nil {
+		// Fall back to CLI reload
+		return c.reloadViaCLI()
+	}
+	return nil
+}
+
+// reloadViaAdminAPI reloads Caddy using the admin API
+func (c *Caddy) reloadViaAdminAPI() error {
 	// Convert Caddyfile to JSON via caddy adapt
 	adaptCmd := exec.Command("caddy", "adapt", "--config", c.configPath, "--pretty")
 	jsonConfig, err := adaptCmd.CombinedOutput()
@@ -237,7 +351,7 @@ func (c *Caddy) ReloadCaddy() error {
 				return d.DialContext(ctx, "unix", c.adminSocketPath)
 			},
 		},
-		Timeout: 30 * time.Second,
+		Timeout: 10 * time.Second,
 	}
 
 	resp, err := client.Do(req)
@@ -251,6 +365,16 @@ func (c *Caddy) ReloadCaddy() error {
 		return fmt.Errorf("admin API returned %d: %s", resp.StatusCode, string(body))
 	}
 
+	return nil
+}
+
+// reloadViaCLI reloads Caddy using the CLI command
+func (c *Caddy) reloadViaCLI() error {
+	cmd := exec.Command("caddy", "reload", "--config", c.configPath, "--adapter", "caddyfile")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("CLI reload failed: %w — %s", err, string(output))
+	}
 	return nil
 }
 
