@@ -297,16 +297,21 @@ if [[ "$BUILD_FROM_SOURCE" == "false" ]]; then
         log_info "Caddyfile copied to $CONFIG_DIR/caddy"
     fi
 
-    # Install CLI and scripts
+    # Install CLI and scripts from master
     mkdir -p "$CONFIG_DIR/scripts"
-    if [[ -f "$DOWNLOAD_DIR/extracted/scripts/juvia" ]]; then
-        chmod +x "$DOWNLOAD_DIR/extracted/scripts/juvia"
-        cp "$DOWNLOAD_DIR/extracted/scripts/juvia" "/usr/local/bin/juvia"
-        cp "$DOWNLOAD_DIR/extracted/scripts/install.sh" "$CONFIG_DIR/scripts/install.sh"
-        cp "$DOWNLOAD_DIR/extracted/scripts/update.sh" "$CONFIG_DIR/scripts/update.sh"
-        cp "$DOWNLOAD_DIR/extracted/scripts/uninstall.sh" "$CONFIG_DIR/scripts/uninstall.sh"
-        cp "$DOWNLOAD_DIR/extracted/scripts/reset.sh" "$CONFIG_DIR/scripts/reset.sh"
-        chmod +x "$CONFIG_DIR/scripts/"*.sh
+    SCRIPTS_BASE="https://raw.githubusercontent.com/marufnwu/Juvia-Panel/master/scripts"
+    for script in juvia install.sh update.sh uninstall.sh reset.sh; do
+        curl -sSL "$SCRIPTS_BASE/$script" -o "/tmp/$script" 2>/dev/null || true
+    done
+    if [[ -f "/tmp/juvia" ]]; then
+        chmod +x /tmp/juvia
+        mv /tmp/juvia "/usr/local/bin/juvia"
+        for script in install.sh update.sh uninstall.sh reset.sh; do
+            if [[ -f "/tmp/$script" ]]; then
+                chmod +x "/tmp/$script"
+                mv "/tmp/$script" "$CONFIG_DIR/scripts/$script"
+            fi
+        done
         log_info "Installed juvia CLI and scripts"
     fi
 
@@ -389,24 +394,21 @@ fi
 chmod +x /usr/local/bin/juvia-{api,agent,cli}
 log_info "Binaries installed (version: $REPO_VERSION)"
 
-# Install CLI and scripts
-if [[ -d "/tmp/juvia-panel-clone" ]]; then
-    SCRIPT_DIR="/tmp/juvia-panel-clone/scripts"
-elif [[ -d "$DOWNLOAD_DIR/extracted" ]]; then
-    SCRIPT_DIR="$DOWNLOAD_DIR/extracted/scripts"
-else
-    SCRIPT_DIR=""
-fi
-
-if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/juvia" ]]; then
-    chmod +x "$SCRIPT_DIR/juvia"
-    cp "$SCRIPT_DIR/juvia" "/usr/local/bin/juvia"
-    mkdir -p "$CONFIG_DIR/scripts"
-    cp "$SCRIPT_DIR/install.sh" "$CONFIG_DIR/scripts/install.sh"
-    cp "$SCRIPT_DIR/update.sh" "$CONFIG_DIR/scripts/update.sh"
-    cp "$SCRIPT_DIR/uninstall.sh" "$CONFIG_DIR/scripts/uninstall.sh"
-    cp "$SCRIPT_DIR/reset.sh" "$CONFIG_DIR/scripts/reset.sh"
-    chmod +x "$CONFIG_DIR/scripts/"*.sh
+# Install CLI and scripts from master
+mkdir -p "$CONFIG_DIR/scripts"
+SCRIPTS_BASE="https://raw.githubusercontent.com/marufnwu/Juvia-Panel/master/scripts"
+for script in juvia install.sh update.sh uninstall.sh reset.sh; do
+    curl -sSL "$SCRIPTS_BASE/$script" -o "/tmp/$script" 2>/dev/null || true
+done
+if [[ -f "/tmp/juvia" ]]; then
+    chmod +x /tmp/juvia
+    mv /tmp/juvia "/usr/local/bin/juvia"
+    for script in install.sh update.sh uninstall.sh reset.sh; do
+        if [[ -f "/tmp/$script" ]]; then
+            chmod +x "/tmp/$script"
+            mv "/tmp/$script" "$CONFIG_DIR/scripts/$script"
+        fi
+    done
     log_info "Installed juvia CLI and scripts"
 fi
 
