@@ -62,7 +62,7 @@ func Close(db *sqlx.DB) error {
 }
 
 // DefaultQueryTimeout is the default timeout for database queries
-const DefaultQueryTimeout = 10 * time.Second
+const DefaultQueryTimeout = 30 * time.Second
 
 // WithQueryTimeout wraps a context with a default query timeout.
 // Use this for all database operations to prevent hanging queries.
