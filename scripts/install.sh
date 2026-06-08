@@ -231,26 +231,9 @@ DOWNLOAD_DIR="/tmp/juvia-panel-download"
 rm -rf "$DOWNLOAD_DIR"
 mkdir -p "$DOWNLOAD_DIR"
 
-# Get latest release tag from GitHub API
-RELEASE_TAG=$(curl -sf "https://api.github.com/repos/marufnwu/Juvia-Panel/releases/latest" | jq -r '.tag_name // empty' 2>/dev/null || echo "")
-
-BUILD_FROM_SOURCE=false
-
-if [[ -z "$RELEASE_TAG" ]]; then
-    log_warn "Could not fetch latest release, will build from source"
-    BUILD_FROM_SOURCE=true
-else
-    log_info "Latest release: $RELEASE_TAG"
-    BASE_URL="https://github.com/marufnwu/Juvia-Panel/releases/download/${RELEASE_TAG}"
-
-    BUNDLE_URL="${BASE_URL}/juvia-release-${ARCH_SUFFIX}.tar.gz"
-    log_info "Downloading bundle from $BUNDLE_URL..."
-
-    if ! curl -sfL "$BUNDLE_URL" -o "$DOWNLOAD_DIR/juvia-release.tar.gz"; then
-        log_warn "Failed to download release bundle, will build from source"
-        BUILD_FROM_SOURCE=true
-    fi
-fi
+# Always build from source to ensure latest code is used
+BUILD_FROM_SOURCE=true
+RELEASE_TAG=""
 
 if [[ "$BUILD_FROM_SOURCE" == "false" ]]; then
     log_info "Extracting release bundle..."
