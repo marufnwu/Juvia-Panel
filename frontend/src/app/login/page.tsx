@@ -54,7 +54,7 @@ export default function LoginPage() {
       const data = await response.json()
       useAuthStore.getState().setAuth(data.access_token, data.user)
       addToast({ type: 'success', title: 'Welcome back!' })
-      router.push('/')
+      window.location.href = '/'
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Login failed'
       setError(errorMessage)
