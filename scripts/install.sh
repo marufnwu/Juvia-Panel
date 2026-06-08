@@ -297,11 +297,17 @@ if [[ "$BUILD_FROM_SOURCE" == "false" ]]; then
         log_info "Caddyfile copied to $CONFIG_DIR/caddy"
     fi
 
-    # Install CLI
+    # Install CLI and scripts
+    mkdir -p "$CONFIG_DIR/scripts"
     if [[ -f "$DOWNLOAD_DIR/extracted/scripts/juvia" ]]; then
         chmod +x "$DOWNLOAD_DIR/extracted/scripts/juvia"
-        mv "$DOWNLOAD_DIR/extracted/scripts/juvia" "/usr/local/bin/juvia"
-        log_info "Installed juvia CLI"
+        cp "$DOWNLOAD_DIR/extracted/scripts/juvia" "/usr/local/bin/juvia"
+        cp "$DOWNLOAD_DIR/extracted/scripts/install.sh" "$CONFIG_DIR/scripts/install.sh"
+        cp "$DOWNLOAD_DIR/extracted/scripts/update.sh" "$CONFIG_DIR/scripts/update.sh"
+        cp "$DOWNLOAD_DIR/extracted/scripts/uninstall.sh" "$CONFIG_DIR/scripts/uninstall.sh"
+        cp "$DOWNLOAD_DIR/extracted/scripts/reset.sh" "$CONFIG_DIR/scripts/reset.sh"
+        chmod +x "$CONFIG_DIR/scripts/"*.sh
+        log_info "Installed juvia CLI and scripts"
     fi
 
     REPO_VERSION="$RELEASE_TAG"
@@ -383,16 +389,19 @@ fi
 chmod +x /usr/local/bin/juvia-{api,agent,cli}
 log_info "Binaries installed (version: $REPO_VERSION)"
 
-# Install CLI scripts from source
+# Install CLI and scripts from source
 SCRIPT_DIR="$TEMP_CLONE_DIR/scripts"
-for script in juvia; do
-    if [[ -f "$SCRIPT_DIR/$script" ]]; then
-        chmod +x "$SCRIPT_DIR/$script"
-        cp "$SCRIPT_DIR/$script" "/usr/local/bin/juvia"
-        log_info "Installed juvia CLI"
-        break
-    fi
-done
+if [[ -f "$SCRIPT_DIR/juvia" ]]; then
+    chmod +x "$SCRIPT_DIR/juvia"
+    cp "$SCRIPT_DIR/juvia" "/usr/local/bin/juvia"
+    mkdir -p "$CONFIG_DIR/scripts"
+    cp "$SCRIPT_DIR/install.sh" "$CONFIG_DIR/scripts/install.sh"
+    cp "$SCRIPT_DIR/update.sh" "$CONFIG_DIR/scripts/update.sh"
+    cp "$SCRIPT_DIR/uninstall.sh" "$CONFIG_DIR/scripts/uninstall.sh"
+    cp "$SCRIPT_DIR/reset.sh" "$CONFIG_DIR/scripts/reset.sh"
+    chmod +x "$CONFIG_DIR/scripts/"*.sh
+    log_info "Installed juvia CLI and scripts"
+fi
 
 step "Generating configuration"
 openssl rand -hex 32 > "$CONFIG_DIR/keys/master"
