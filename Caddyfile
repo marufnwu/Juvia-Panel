@@ -34,7 +34,10 @@
     }
 
     # Proxy API requests to Go backend
-    handle /api/** {
+    @api {
+        path /api/**
+    }
+    handle @api {
         reverse_proxy localhost:9090
     }
 
