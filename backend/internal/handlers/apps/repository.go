@@ -123,15 +123,8 @@ func (r *AppRepository) ListApps(ctx context.Context, params ListAppsParams) ([]
 			return nil, 0, fmt.Errorf("failed to scan app: %w", err)
 		}
 		
-		// Get domains for this app - use GROUP_CONCAT to get all domains in single query
-		var domains []string
-		domainsQuery := "SELECT GROUP_CONCAT(domain, ',') FROM app_domains WHERE app_id = ?"
-		var domainsConcatenated sql.NullString
-		if err := r.db.GetContext(ctx, &domainsConcatenated, domainsQuery, app.ID); err == nil && domainsConcatenated.Valid && domainsConcatenated.String != "" {
-			domains = strings.Split(domainsConcatenated.String, ",")
-		} else {
-			domains = []string{}
-		}
+		// Get domains for this app - skip for now to avoid timeout, domains can be loaded per-app
+		domains := []string{}
 		
 		// Parse source config
 		var sourceConfig database.SourceConfig
