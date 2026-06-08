@@ -389,9 +389,16 @@ fi
 chmod +x /usr/local/bin/juvia-{api,agent,cli}
 log_info "Binaries installed (version: $REPO_VERSION)"
 
-# Install CLI and scripts from source
-SCRIPT_DIR="$TEMP_CLONE_DIR/scripts"
-if [[ -f "$SCRIPT_DIR/juvia" ]]; then
+# Install CLI and scripts
+if [[ -d "/tmp/juvia-panel-clone" ]]; then
+    SCRIPT_DIR="/tmp/juvia-panel-clone/scripts"
+elif [[ -d "$DOWNLOAD_DIR/extracted" ]]; then
+    SCRIPT_DIR="$DOWNLOAD_DIR/extracted/scripts"
+else
+    SCRIPT_DIR=""
+fi
+
+if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/juvia" ]]; then
     chmod +x "$SCRIPT_DIR/juvia"
     cp "$SCRIPT_DIR/juvia" "/usr/local/bin/juvia"
     mkdir -p "$CONFIG_DIR/scripts"
