@@ -134,8 +134,21 @@ func (r *AppRepository) ListApps(ctx context.Context, params ListAppsParams) ([]
 		database.ParseJSONField(&app.SourceConfig, &sourceConfig)
 		
 		var lastDeployed *time.Time
-		if lastDeployedAt.Valid {
-			lastDeployed = &lastDeployedAt.Time
+		if lastDeployedAt.Valid && lastDeployedAt.String != "" {
+			// Try parsing the timestamp string
+			layouts := []string{
+				"2006-01-02 15:04:05.999999999 -0700 MST",
+				"2006-01-02 15:04:05.999999999 -0700",
+				"2006-01-02 15:04:05.999999999",
+				time.RFC3339,
+				"2006-01-02 15:04:05",
+			}
+			for _, layout := range layouts {
+				if t, err := time.Parse(layout, lastDeployedAt.String); err == nil {
+					lastDeployed = &t
+					break
+				}
+			}
 		}
 		
 		item := database.AppListItem{
