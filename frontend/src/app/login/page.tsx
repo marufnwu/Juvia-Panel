@@ -40,8 +40,7 @@ export default function LoginPage() {
     try {
       await login(email, password)
       addToast({ type: 'success', title: 'Welcome back!' })
-      await new Promise(resolve => setTimeout(resolve, 100))
-      router.push('/')
+      window.location.href = '/'
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Login failed'
       setError(errorMessage)

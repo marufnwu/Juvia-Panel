@@ -43,9 +43,9 @@ export default function SetupPage() {
 
   useEffect(() => {
     if (_hasHydrated && isAuthenticated) {
-      router.push('/')
+      window.location.href = '/'
     }
-  }, [_hasHydrated, isAuthenticated, router])
+  }, [_hasHydrated, isAuthenticated])
 
   const validateForm = () => {
     if (!email || !username || !password || !confirmPassword) {
@@ -117,7 +117,7 @@ export default function SetupPage() {
   }
 
   const handleGoToDashboard = () => {
-    router.push('/')
+    window.location.href = '/'
   }
 
   // Show loading while checking

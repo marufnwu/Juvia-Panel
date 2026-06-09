@@ -69,6 +69,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, checkUsersExist, usersExist, _hasHydrated } = useAuthStore()
   const [isLoading, setIsLoading] = useState(true)
 
+  const normalizedPathname = pathname === '/' ? '/' : pathname.replace(/\/$/, '')
+
   useEffect(() => {
     if (!_hasHydrated) return
 
@@ -84,8 +86,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoading || !_hasHydrated) return
 
-    const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route))
-    const isAuthRoute = authRoutes.includes(pathname)
+    const isProtectedRoute = protectedRoutes.some(route => normalizedPathname === route || normalizedPathname.startsWith(route + '/'))
+    const isAuthRoute = authRoutes.includes(normalizedPathname)
 
     if (usersExist === false && !isAuthRoute && pathname !== '/setup') {
       router.push('/setup')
