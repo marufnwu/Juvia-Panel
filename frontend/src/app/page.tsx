@@ -242,7 +242,7 @@ function QuickAction({
 export default function DashboardPage() {
   const router = useRouter()
   const { addToast } = useToastStore()
-  const { isAuthenticated, accessToken } = useAuthStore()
+  const { _hasHydrated } = useAuthStore()
   const [metricsHistory, setMetricsHistory] = useState<MetricsPoint[]>([])
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [isConnected, setIsConnected] = useState(false)
@@ -251,12 +251,9 @@ export default function DashboardPage() {
   const { ws } = useWebSocket()
 
   useEffect(() => {
-    if (accessToken || isAuthenticated) {
-      setCheckingAuth(false)
-    } else {
-      router.push('/login')
-    }
-  }, [accessToken, isAuthenticated, router])
+    if (!_hasHydrated) return
+    setCheckingAuth(false)
+  }, [_hasHydrated])
 
   const handleMetricsUpdate = useCallback((data: ServerMetrics) => {
     setMetricsHistory(prev => {
@@ -374,10 +371,6 @@ export default function DashboardPage() {
         </div>
       </div>
     )
-  }
-
-  if (!isAuthenticated && !accessToken) {
-    return null
   }
 
   return (

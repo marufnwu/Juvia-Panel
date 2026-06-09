@@ -25,102 +25,117 @@ interface AuthState {
   user: { id: string; email: string; name: string; role: string } | null
   usersExist: boolean | null
   setupCompleted: boolean | null
+  _hasHydrated: boolean
   setAuth: (token: string, user: AuthState['user']) => void
   clearAuth: () => void
   login: (username: string, password: string) => Promise<void>
   logout: () => Promise<void>
   refreshAccessToken: () => Promise<string | null>
-  checkUsersExist: () => Promise<{ usersExist: boolean; setupCompleted: boolean }>
+  checkUsersExist: () => Promise<{ usersExist: boolean; setupCompleted: boolean; error: unknown | null }>
   register: (email: string, username: string, password: string) => Promise<{ access_token: string; user?: { id: number; email: string; username: string; role: string } }>
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
-  isAuthenticated: false,
-  accessToken: null,
-  user: null,
-  usersExist: null,
-  setupCompleted: null,
-  setAuth: (token, user) => set({ isAuthenticated: true, accessToken: token, user }),
-  clearAuth: () => set({ isAuthenticated: false, accessToken: null, user: null }),
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      isAuthenticated: false,
+      accessToken: null,
+      user: null,
+      usersExist: null,
+      setupCompleted: null,
+      _hasHydrated: false,
+      setAuth: (token, user) => set({ isAuthenticated: true, accessToken: token, user }),
+      clearAuth: () => set({ isAuthenticated: false, accessToken: null, user: null }),
 
-  login: async (username: string, password: string) => {
-    try {
-      const data = await api.auth.login(username, password)
-      set({
-        isAuthenticated: true,
-        accessToken: data.access_token,
-        user: data.user ? {
-          id: String(data.user.id),
-          email: data.user.email || username,
-          name: data.user.username || username,
-          role: data.user.role || 'viewer',
-        } : null,
-        usersExist: true,
-        setupCompleted: true,
-      })
-    } catch (error) {
-      set({ isAuthenticated: false, accessToken: null, user: null })
-      throw error
-    }
-  },
+      login: async (username: string, password: string) => {
+        try {
+          const data = await api.auth.login(username, password)
+          set({
+            isAuthenticated: true,
+            accessToken: data.access_token,
+            user: data.user ? {
+              id: String(data.user.id),
+              email: data.user.email || username,
+              name: data.user.username || username,
+              role: data.user.role || 'viewer',
+            } : null,
+            usersExist: true,
+            setupCompleted: true,
+          })
+        } catch (error) {
+          set({ isAuthenticated: false, accessToken: null, user: null })
+          throw error
+        }
+      },
 
-  logout: async () => {
-    try {
-      await api.auth.logout()
-    } finally {
-      set({ isAuthenticated: false, accessToken: null, user: null })
-    }
-  },
+      logout: async () => {
+        try {
+          await api.auth.logout()
+        } finally {
+          set({ isAuthenticated: false, accessToken: null, user: null })
+        }
+      },
 
-  refreshAccessToken: async () => {
-    try {
-      const data = await api.auth.refresh()
-      set({ accessToken: data.access_token })
-      return data.access_token
-    } catch {
-      set({ isAuthenticated: false, accessToken: null, user: null })
-      return null
-    }
-  },
+      refreshAccessToken: async () => {
+        try {
+          const data = await api.auth.refresh()
+          set({ accessToken: data.access_token })
+          return data.access_token
+        } catch {
+          set({ isAuthenticated: false, accessToken: null, user: null })
+          return null
+        }
+      },
 
-  checkUsersExist: async () => {
-    try {
-      const data = await api.auth.status()
-      set({ 
-        usersExist: data.users_exist,
-        setupCompleted: data.setup_completed 
-      })
-      return { 
-        usersExist: data.users_exist, 
-        setupCompleted: data.setup_completed 
-      }
-    } catch {
-      return { usersExist: false, setupCompleted: false }
-    }
-  },
+      checkUsersExist: async () => {
+        try {
+          const data = await api.auth.status()
+          set({
+            usersExist: data.users_exist,
+            setupCompleted: data.setup_completed
+          })
+          return {
+            usersExist: data.users_exist,
+            setupCompleted: data.setup_completed,
+            error: null
+          }
+        } catch (error) {
+          return { usersExist: true, setupCompleted: true, error }
+        }
+      },
 
-  register: async (email: string, username: string, password: string) => {
-    try {
-      const data = await api.auth.register(email, username, password)
-      set({
-        isAuthenticated: true,
-        accessToken: data.access_token,
-        user: data.user ? {
-          id: String(data.user.id),
-          email: data.user.email,
-          name: data.user.username,
-          role: data.user.role,
-        } : null,
-        usersExist: true,
-        setupCompleted: true,
-      })
-      return data
-    } catch (error) {
-      set({ isAuthenticated: false, accessToken: null, user: null })
-      throw error
+      register: async (email: string, username: string, password: string) => {
+        try {
+          const data = await api.auth.register(email, username, password)
+          set({
+            isAuthenticated: true,
+            accessToken: data.access_token,
+            user: data.user ? {
+              id: String(data.user.id),
+              email: data.user.email,
+              name: data.user.username,
+              role: data.user.role,
+            } : null,
+            usersExist: true,
+            setupCompleted: true,
+          })
+          return data
+        } catch (error) {
+          set({ isAuthenticated: false, accessToken: null, user: null })
+          throw error
+        }
+      },
+    }),
+    {
+      name: 'panel-auth',
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          state._hasHydrated = true
+        }
+      },
     }
-  },
-}))
+  )
+)
 
 // Theme store
 interface ThemeState {

@@ -66,10 +66,12 @@ const authRoutes = ['/login', '/setup']
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
-  const { isAuthenticated, checkUsersExist, usersExist } = useAuthStore()
+  const { isAuthenticated, checkUsersExist, usersExist, _hasHydrated } = useAuthStore()
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
+    if (!_hasHydrated) return
+
     async function checkAuth() {
       if (usersExist === null) {
         await checkUsersExist()
@@ -77,10 +79,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       setIsLoading(false)
     }
     checkAuth()
-  }, [checkUsersExist, usersExist])
+  }, [_hasHydrated, checkUsersExist, usersExist])
 
   useEffect(() => {
-    if (isLoading) return
+    if (isLoading || !_hasHydrated) return
 
     const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route))
     const isAuthRoute = authRoutes.includes(pathname)
@@ -99,7 +101,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       router.push('/')
       return
     }
-  }, [isLoading, usersExist, isAuthenticated, pathname, router])
+  }, [isLoading, _hasHydrated, usersExist, isAuthenticated, pathname, router])
 
   if (isLoading) {
     return (

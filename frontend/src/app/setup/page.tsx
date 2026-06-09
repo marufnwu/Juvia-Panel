@@ -13,14 +13,13 @@ type Step = 'account' | 'complete'
 
 export default function SetupPage() {
   const router = useRouter()
-  const { register, checkUsersExist, usersExist, isAuthenticated, setAuth } = useAuthStore()
+  const { register, checkUsersExist, usersExist, isAuthenticated, setAuth, _hasHydrated } = useAuthStore()
   const { addToast } = useToastStore()
   
   const [currentStep, setCurrentStep] = useState<Step>('account')
   const [isLoading, setIsLoading] = useState(false)
   const [isCheckingUsers, setIsCheckingUsers] = useState(true)
   
-  // Form state
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -28,26 +27,25 @@ export default function SetupPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [formError, setFormError] = useState('')
 
-  // Check if setup is already completed on mount
   useEffect(() => {
+    if (!_hasHydrated) return
+
     async function checkSetup() {
-      const { setupCompleted } = await checkUsersExist()
-      if (setupCompleted) {
-        // Setup already completed, redirect to login
+      const { setupCompleted, error } = await checkUsersExist()
+      if (!error && setupCompleted) {
         window.location.href = '/login'
       } else {
         setIsCheckingUsers(false)
       }
     }
     checkSetup()
-  }, [checkUsersExist])
+  }, [_hasHydrated, checkUsersExist])
 
-  // If already authenticated, redirect to dashboard
   useEffect(() => {
-    if (isAuthenticated) {
+    if (_hasHydrated && isAuthenticated) {
       router.push('/')
     }
-  }, [isAuthenticated, router])
+  }, [_hasHydrated, isAuthenticated, router])
 
   const validateForm = () => {
     if (!email || !username || !password || !confirmPassword) {

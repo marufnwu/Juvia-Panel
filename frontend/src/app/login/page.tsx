@@ -7,11 +7,9 @@ import { Server, Loader2, Eye, EyeOff } from 'lucide-react'
 import { useAuthStore } from '@/stores'
 import { useToastStore } from '@/stores'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
-
 export default function LoginPage() {
   const router = useRouter()
-  const { login, checkUsersExist } = useAuthStore()
+  const { login, checkUsersExist, _hasHydrated } = useAuthStore()
   const { addToast } = useToastStore()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -20,18 +18,19 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [isChecking, setIsChecking] = useState(true)
 
-  // Redirect to setup if not completed
   useEffect(() => {
+    if (!_hasHydrated) return
+
     async function check() {
-      const { setupCompleted } = await checkUsersExist()
-      if (!setupCompleted) {
+      const { setupCompleted, error } = await checkUsersExist()
+      if (!error && setupCompleted === false) {
         window.location.href = '/setup'
         return
       }
       setIsChecking(false)
     }
     check()
-  }, [checkUsersExist])
+  }, [_hasHydrated, checkUsersExist])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -39,22 +38,10 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
-      const response = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: email, password }),
-        credentials: 'include',
-      })
-      
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.message || 'Login failed')
-      }
-      
-      const data = await response.json()
-      useAuthStore.getState().setAuth(data.access_token, data.user)
+      await login(email, password)
       addToast({ type: 'success', title: 'Welcome back!' })
-      setTimeout(() => { window.location.href = '/' }, 300)
+      await new Promise(resolve => setTimeout(resolve, 100))
+      router.push('/')
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Login failed'
       setError(errorMessage)

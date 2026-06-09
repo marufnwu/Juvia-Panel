@@ -30,6 +30,10 @@ func CORS(cfg *config.Config) gin.HandlerFunc {
 			c.Header("Access-Control-Allow-Origin", origin)
 			allowed = true
 		} else if cfg.AllowedOrigins == "" && cfg.PanelDomain == "" {
+			if cfg.Env == "production" {
+				c.AbortWithStatusJSON(403, gin.H{"error": "origin not allowed"})
+				return
+			}
 			c.Header("Access-Control-Allow-Origin", origin)
 			allowed = true
 		} else if isLocalOrigin(origin) {

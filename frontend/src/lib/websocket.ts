@@ -2,6 +2,8 @@
 // Native browser WebSocket API (no Socket.IO per spec)
 
 import type { ServerMetrics, WSDeploymentUpdate, WSNotification } from '@/types'
+import { useToastStore, useAuthStore } from '@/stores'
+import { useEffect, useState, useCallback } from 'react'
 
 type MessageHandler = (data: unknown) => void
 type ConnectionHandler = () => void
@@ -55,7 +57,9 @@ interface AppStatusPayload {
 function getDefaultWebSocketUrl(): string {
   if (typeof window !== 'undefined') {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${protocol}//${window.location.host}/api/v1/stream`
+    const token = useAuthStore.getState().accessToken
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : ''
+    return `${protocol}//${window.location.host}/api/v1/stream${tokenParam}`
   }
   return process.env.NEXT_PUBLIC_WS_URL || ''
 }
@@ -394,12 +398,6 @@ export function useDeploymentNotifications(
     }
   }, [enabled, onDeployment, addToast, ws])
 }
-
-// Import useToastStore from stores
-import { useToastStore } from '@/stores'
-
-// Import useEffect for React hooks
-import { useEffect, useState, useCallback } from 'react'
 
 // Hook for WebSocket connection state
 export function useWebSocket() {

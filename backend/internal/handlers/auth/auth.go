@@ -229,15 +229,16 @@ func Login(c *gin.Context) {
 		time.Now(), c.ClientIP(), user.ID)
 
 	// Set refresh token cookie
-	c.SetCookie(
-		"refresh_token",
-		refreshToken,
-		int(cfg.RefreshExpiry.Seconds()),
-		"/",
-		"",
-		cfg.Env == "production",
-		true, // httpOnly
-	)
+	cookie := &http.Cookie{
+		Name:     "refresh_token",
+		Value:    refreshToken,
+		Path:     "/",
+		MaxAge:   int(cfg.RefreshExpiry.Seconds()),
+		Secure:   cfg.Env == "production",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	}
+	http.SetCookie(c.Writer, cookie)
 
 	c.JSON(http.StatusOK, LoginResponse{
 		AccessToken: accessToken,
@@ -368,15 +369,16 @@ func Logout(c *gin.Context) {
 	}
 
 	// Clear refresh token cookie
-	c.SetCookie(
-		"refresh_token",
-		"",
-		-1,
-		"/",
-		"",
-		cfg.Env == "production",
-		true,
-	)
+	clearCookie := &http.Cookie{
+		Name:     "refresh_token",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		Secure:   cfg.Env == "production",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	}
+	http.SetCookie(c.Writer, clearCookie)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":    true,
@@ -768,15 +770,16 @@ func Register(c *gin.Context) {
 	}
 
 	// Set refresh token cookie
-	c.SetCookie(
-		"refresh_token",
-		refreshToken,
-		int(cfg.RefreshExpiry.Seconds()),
-		"/",
-		"",
-		cfg.Env == "production",
-		true, // httpOnly
-	)
+	cookie := &http.Cookie{
+		Name:     "refresh_token",
+		Value:    refreshToken,
+		Path:     "/",
+		MaxAge:   int(cfg.RefreshExpiry.Seconds()),
+		Secure:   cfg.Env == "production",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	}
+	http.SetCookie(c.Writer, cookie)
 
 	c.JSON(http.StatusCreated, RegisterResponse{
 		AccessToken: accessToken,
