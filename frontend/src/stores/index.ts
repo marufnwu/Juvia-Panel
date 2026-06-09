@@ -128,9 +128,11 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'panel-auth',
-      onRehydrateStorage: () => (state) => {
-        if (state) {
-          state._hasHydrated = true
+      onRehydrateStorage: () => {
+        return (state, error) => {
+          if (state && !error) {
+            useAuthStore.setState({ _hasHydrated: true })
+          }
         }
       },
     }

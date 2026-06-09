@@ -90,20 +90,20 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     const isAuthRoute = authRoutes.includes(normalizedPathname)
 
     if (usersExist === false && !isAuthRoute && pathname !== '/setup') {
-      router.push('/setup')
+      router.replace('/setup')
       return
     }
 
     if (usersExist === true && !isAuthenticated && isProtectedRoute) {
-      router.push('/login')
+      router.replace('/login')
       return
     }
 
     if (isAuthenticated && isAuthRoute) {
-      router.push('/')
+      router.replace('/')
       return
     }
-  }, [isLoading, _hasHydrated, usersExist, isAuthenticated, pathname, router])
+  }, [isLoading, _hasHydrated, usersExist, isAuthenticated])
 
   if (isLoading) {
     return (

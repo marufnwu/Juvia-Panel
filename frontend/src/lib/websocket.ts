@@ -86,6 +86,11 @@ class PanelWebSocket {
       return
     }
 
+    // Clean up any existing closed connection
+    if (this.ws?.readyState === WebSocket.CLOSING || this.ws?.readyState === WebSocket.CLOSED) {
+      this.ws = null
+    }
+
     this.isConnecting = true
 
     try {
