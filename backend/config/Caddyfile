@@ -65,33 +65,3 @@
         file_server
     }
 }
-
-    # Next.js static files (_next/static, etc.)
-    handle /_next/* {
-        file_server {
-            root /opt/panel/ui/out
-        }
-    }
-
-    # Static assets
-    handle /static/* {
-        file_server {
-            root /opt/panel/ui/out
-        }
-    }
-
-    # Proxy API requests to Go backend
-    handle /api* {
-        reverse_proxy localhost:9090
-    }
-
-    # Health check
-    handle /health {
-        reverse_proxy localhost:9090
-    }
-
-    # SPA fallback - serve index.html for client-side routing
-    root /opt/panel/ui/out
-    try_files {path} {path}/index.html /index.html
-    file_server
-}
