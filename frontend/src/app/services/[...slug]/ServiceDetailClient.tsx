@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -110,12 +110,13 @@ function formatRelativeTime(dateString?: string): string {
 }
 
 export function ServiceDetailClient() {
-  const params = useParams()
   const router = useRouter()
   const { addToast } = useToastStore()
   const queryClient = useQueryClient()
 
-  const serviceId = (params.slug as string[])?.[0] as string
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : ''
+  const pathSegments = pathname.split('/').filter(Boolean)
+  const serviceId = pathSegments[1] || ''
   const [activeTab, setActiveTab] = useState('overview')
   const [showPassword, setShowPassword] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)

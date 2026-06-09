@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 
 import Link from 'next/link'
 
@@ -129,9 +129,11 @@ function formatDuration(seconds: number): string {
 }
 
 export function CronJobDetailClient() {
-  const params = useParams()
   const router = useRouter()
-  const cronJobId = (params.slug as string[])?.[0] as string
+
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : ''
+  const pathSegments = pathname.split('/').filter(Boolean)
+  const cronJobId = pathSegments[1] || ''
 
   const [cronJob, setCronJob] = useState<CronJob | null>(null)
   const [executionLogs, setExecutionLogs] = useState<ExecutionLog[]>([])

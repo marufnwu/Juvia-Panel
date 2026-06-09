@@ -108,7 +108,18 @@ func NewHub(cfg *config.Config) *Hub {
 				if cfg.PanelDomain != "" && strings.Contains(origin, cfg.PanelDomain) {
 					return true
 				}
+				// Allow same-origin and local network connections
 				if cfg.AllowedOrigins == "" && cfg.PanelDomain == "" {
+					return true
+				}
+				// Also allow local IP addresses (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+				if strings.HasPrefix(origin, "http://192.168.") ||
+					strings.HasPrefix(origin, "http://10.") ||
+					strings.HasPrefix(origin, "http://172.") {
+					return true
+				}
+				// Allow localhost
+				if strings.Contains(origin, "localhost") || strings.Contains(origin, "127.0.0.1") {
 					return true
 				}
 				return false

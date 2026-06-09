@@ -289,6 +289,7 @@ fi
 # Update Caddyfile if new one is available
 if [[ -f "$DOWNLOAD_DIR/extracted/config/Caddyfile" ]]; then
     cp "$DOWNLOAD_DIR/extracted/config/Caddyfile" "$CONFIG_DIR/caddy/Caddyfile"
+    chown juvia:juvia "$CONFIG_DIR/caddy/Caddyfile"
     log_info "Caddyfile updated"
     # Reload Caddy so the new config takes effect
     if systemctl is-active juvia-caddy &>/dev/null; then

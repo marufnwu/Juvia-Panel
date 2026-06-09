@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useParams, useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams, useParams } from 'next/navigation'
 
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -142,14 +142,17 @@ function formatRelativeTime(dateString?: string): string {
 }
 
 export function AppDetailClient() {
-  const params = useParams()
   const router = useRouter()
   const searchParams = useSearchParams()
   const { addToast } = useToastStore()
   const queryClient = useQueryClient()
 
-  const appId = (params.slug as string[])?.[0] as string
+  const params = useParams()
+  const slug = (params?.slug as string[])?.[0] || ''
+  const appId = slug && slug !== 'new' && slug !== '_' ? slug : ''
   const initialTab = searchParams.get('tab') || 'overview'
+
+  const isInvalidAppId = !appId || appId === 'new' || appId === '_'
   
   const [activeTab, setActiveTab] = useState(initialTab)
   const [showRestartConfirm, setShowRestartConfirm] = useState(false)
@@ -168,6 +171,7 @@ export function AppDetailClient() {
   const { data: app, isLoading: appLoading, error: appError } = useQuery<AppDetail, ApiError>({
     queryKey: ['app', appId],
     queryFn: () => api.apps.get(appId) as Promise<AppDetail>,
+    enabled: !!appId && !isInvalidAppId,
   })
 
   // Fetch deployments
@@ -177,6 +181,7 @@ export function AppDetailClient() {
       const response = await api.apps.getDeployments(appId)
       return (response as unknown as { data: Deployment[] }).data || []
     },
+    enabled: !!appId && !isInvalidAppId,
   })
 
   // Fetch environment variables
@@ -188,6 +193,7 @@ export function AppDetailClient() {
       setEnvVars(data.variables || [])
       return data
     },
+    enabled: !!appId && !isInvalidAppId,
   })
 
   // Restart mutation
@@ -317,6 +323,14 @@ export function AppDetailClient() {
     } catch {
       setDeploymentLogs(prev => ({ ...prev, [deploymentId]: 'Failed to fetch logs' }))
     }
+  }
+
+  if (isInvalidAppId) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+      </div>
+    )
   }
 
   if (appLoading) {

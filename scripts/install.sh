@@ -298,6 +298,7 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     if [[ -f "$TEMP_CLONE_DIR/backend/config/Caddyfile" ]]; then
         mkdir -p "$CONFIG_DIR/caddy"
         cp "$TEMP_CLONE_DIR/backend/config/Caddyfile" "$CONFIG_DIR/caddy/Caddyfile"
+        chown juvia:juvia "$CONFIG_DIR/caddy/Caddyfile"
     fi
 
     rm -rf "$TEMP_CLONE_DIR"

@@ -1,0 +1,91 @@
+{
+    admin unix//var/run/panel/caddy-admin.sock
+    log {
+        level INFO
+    }
+}
+
+:2053 {
+    handle /_next/* {
+        header {
+            X-Frame-Options "DENY"
+            X-Content-Type-Options "nosniff"
+            X-XSS-Protection "1; mode=block"
+            Referrer-Policy "strict-origin-when-cross-origin"
+            Permissions-Policy "camera=(), microphone=(), geolocation=()"
+            -Server
+            Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        }
+        file_server {
+            root /opt/panel/ui/out
+        }
+    }
+
+    handle /static/* {
+        header {
+            X-Frame-Options "DENY"
+            X-Content-Type-Options "nosniff"
+            X-XSS-Protection "1; mode=block"
+            Referrer-Policy "strict-origin-when-cross-origin"
+            Permissions-Policy "camera=(), microphone=(), geolocation=()"
+            -Server
+            Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        }
+        file_server {
+            root /opt/panel/ui/out
+        }
+    }
+
+    handle /api/v1/stream {
+        reverse_proxy localhost:9090 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle /api* {
+        reverse_proxy localhost:9090
+    }
+
+    handle /health {
+        reverse_proxy localhost:9090
+    }
+
+    @appsRoute path /apps/*
+    handle @appsRoute {
+        rewrite /apps/* /apps/_/index.html
+        file_server {
+            root /opt/panel/ui/out
+        }
+    }
+
+    @servicesRoute path /services/*
+    handle @servicesRoute {
+        rewrite /services/* /services/_/index.html
+        file_server {
+            root /opt/panel/ui/out
+        }
+    }
+
+    @cronRoute path /cron/*
+    handle @cronRoute {
+        rewrite /cron/* /cron/_/index.html
+        file_server {
+            root /opt/panel/ui/out
+        }
+    }
+
+    handle {
+        header {
+            X-Frame-Options "DENY"
+            X-Content-Type-Options "nosniff"
+            X-XSS-Protection "1; mode=block"
+            Referrer-Policy "strict-origin-when-cross-origin"
+            Permissions-Policy "camera=(), microphone=(), geolocation=()"
+            -Server
+            Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        }
+        root /opt/panel/ui/out
+        try_files {path} {path}/index.html /index.html
+        file_server
+    }
+}
