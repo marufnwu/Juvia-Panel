@@ -524,9 +524,9 @@ TimeoutStartSec=30
 TimeoutStopSec=10
 
 NoNewPrivileges=true
-ProtectSystem=strict
+ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=$INSTALL_DIR/ui/.next/cache
+ReadWritePaths=$INSTALL_DIR/ui/.next
 
 [Install]
 WantedBy=multi-user.target
