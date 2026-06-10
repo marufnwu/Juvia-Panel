@@ -43,18 +43,22 @@ if [[ -f "$DB_PATH" ]]; then
     if [[ "$KEEP_BACKUP" == "true" ]]; then
         BACKUP_PATH="${DB_PATH}.backup.$(date +%Y%m%d-%H%M%S)"
         mv "$DB_PATH" "$BACKUP_PATH"
+        mv "${DB_PATH}-wal" "${BACKUP_PATH}-wal" 2>/dev/null || true
+        mv "${DB_PATH}-shm" "${BACKUP_PATH}-shm" 2>/dev/null || true
         log_info "Database backed up to: $BACKUP_PATH"
     else
-        rm -f "$DB_PATH"
+        rm -f "$DB_PATH" "${DB_PATH}-wal" "${DB_PATH}-shm"
         log_info "Database removed"
     fi
 elif [[ -f "$CONFIG_DB_PATH" ]]; then
     if [[ "$KEEP_BACKUP" == "true" ]]; then
         BACKUP_PATH="${CONFIG_DB_PATH}.backup.$(date +%Y%m%d-%H%M%S)"
         mv "$CONFIG_DB_PATH" "$BACKUP_PATH"
+        mv "${CONFIG_DB_PATH}-wal" "${BACKUP_PATH}-wal" 2>/dev/null || true
+        mv "${CONFIG_DB_PATH}-shm" "${BACKUP_PATH}-shm" 2>/dev/null || true
         log_info "Database backed up to: $BACKUP_PATH"
     else
-        rm -f "$CONFIG_DB_PATH"
+        rm -f "$CONFIG_DB_PATH" "${CONFIG_DB_PATH}-wal" "${CONFIG_DB_PATH}-shm"
         log_info "Database removed"
     fi
 else

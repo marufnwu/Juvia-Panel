@@ -212,19 +212,29 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
 
     log_info "Building UI..."
     cd "$TEMP_CLONE/frontend"
-    npm ci --legacy-peer-deps --silent 2>/dev/null || npm install --legacy-peer-deps 2>/dev/null || true
+    if ! npm ci --legacy-peer-deps --silent 2>/dev/null; then
+        if ! npm install --legacy-peer-deps; then
+            log_warn "UI build failed, preserving existing UI"
+        fi
+    fi
     npm run build 2>/dev/null || log_warn "UI build failed, preserving existing UI"
 
-    if [[ -d "$TEMP_CLONE/frontend/out" ]]; then
-        cd "$TEMP_CLONE/frontend"
-        tar -czf "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" out/
+    if [[ -d "$TEMP_CLONE/frontend/.next" ]]; then
+        mkdir -p "$DOWNLOAD_DIR/extracted/juvia-ui"
+        cp -r "$TEMP_CLONE/frontend/.next" "$DOWNLOAD_DIR/extracted/juvia-ui/.next"
+        cp "$TEMP_CLONE/frontend/package.json" "$DOWNLOAD_DIR/extracted/juvia-ui/"
+        cp "$TEMP_CLONE/frontend/next.config.js" "$DOWNLOAD_DIR/extracted/juvia-ui/"
+        cp "$TEMP_CLONE/frontend/.env.production" "$DOWNLOAD_DIR/extracted/juvia-ui/" 2>/dev/null || true
+        if [[ -d "$TEMP_CLONE/frontend/node_modules" ]]; then
+            cp -r "$TEMP_CLONE/frontend/node_modules" "$DOWNLOAD_DIR/extracted/juvia-ui/"
+        fi
     else
         log_warn "UI build output not found, preserving existing UI"
     fi
 
     # Copy migrations
     mkdir -p "$DOWNLOAD_DIR/extracted/migrations"
-    cp "$TEMP_CLONE/backend/migrations/"*.sql "$DOWNLOAD_DIR/extracted/migrations/" 2>/dev/null || true
+    cp "$TEMP_CLONE/backend/internal/database/migrations/"*.sql "$DOWNLOAD_DIR/extracted/migrations/" 2>/dev/null || true
 
     # Copy Caddyfile to download directory for deployment
     mkdir -p "$DOWNLOAD_DIR/extracted/config"
@@ -266,24 +276,26 @@ for binary in juvia-api juvia-agent juvia-cli; do
     fi
 done
 
-if [[ -f "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" ]]; then
-    # Verify the tarball contains the expected static export structure
-    if ! tar tzf "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" | grep -q "^out/index.html$"; then
-        log_error "UI tarball appears to be invalid (no out/index.html found)"
-        log_error "Refusing to update UI with corrupted package"
-        exit 1
-    fi
-
+if [[ -d "$DOWNLOAD_DIR/extracted/juvia-ui/.next" ]]; then
     rm -rf "$INSTALL_DIR/ui.old"
     if [[ -d "$INSTALL_DIR/ui" ]]; then
         mv "$INSTALL_DIR/ui" "$INSTALL_DIR/ui.old" 2>/dev/null || true
     fi
     mkdir -p "$INSTALL_DIR/ui"
-    tar xzf "$DOWNLOAD_DIR/extracted/juvia-ui.tar.gz" -C "$INSTALL_DIR/ui/"
+    cp -r "$DOWNLOAD_DIR/extracted/juvia-ui/.next" "$INSTALL_DIR/ui/.next"
+    cp "$DOWNLOAD_DIR/extracted/juvia-ui/package.json" "$INSTALL_DIR/ui/"
+    cp "$DOWNLOAD_DIR/extracted/juvia-ui/next.config.js" "$INSTALL_DIR/ui/"
+    cp "$DOWNLOAD_DIR/extracted/juvia-ui/.env.production" "$INSTALL_DIR/ui/" 2>/dev/null || true
+    if [[ -d "$DOWNLOAD_DIR/extracted/juvia-ui/node_modules" ]]; then
+        cp -r "$DOWNLOAD_DIR/extracted/juvia-ui/node_modules" "$INSTALL_DIR/ui/"
+    fi
     chown -R juvia:juvia "$INSTALL_DIR/ui" 2>/dev/null || true
     log_info "UI updated"
+    if systemctl is-active juvia-ui &>/dev/null; then
+        systemctl restart juvia-ui 2>/dev/null || true
+    fi
 else
-    log_warn "UI tarball not found in update package"
+    log_warn "UI package not found in update, preserving existing UI"
 fi
 
 # Update Caddyfile if new one is available
@@ -310,6 +322,9 @@ log_step "Step 5: Starting services"
 systemctl start juvia-agent 2>/dev/null || true
 sleep 2
 systemctl start juvia-api
+if systemctl is-enabled juvia-ui &>/dev/null; then
+    systemctl start juvia-ui 2>/dev/null || true
+fi
 if systemctl is-enabled juvia-caddy &>/dev/null; then
     systemctl start juvia-caddy 2>/dev/null || true
 fi

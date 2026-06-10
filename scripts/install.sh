@@ -293,8 +293,14 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     fi
 
     cd "$TEMP_CLONE_DIR/frontend"
-    npm install --legacy-peer-deps
-    npm run build
+    if ! npm install --legacy-peer-deps; then
+        log_error "UI dependencies installation failed"
+        exit 1
+    fi
+    if ! npm run build; then
+        log_error "UI build failed"
+        exit 1
+    fi
 
     # Install UI (server mode)
     if [[ -d "$TEMP_CLONE_DIR/frontend/.next" ]]; then
@@ -313,8 +319,8 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
 
     # Copy migrations
     mkdir -p "$CONFIG_DIR/migrations"
-    if [[ -d "$TEMP_CLONE_DIR/backend/migrations" ]]; then
-        cp "$TEMP_CLONE_DIR/backend/migrations/"*.sql "$CONFIG_DIR/migrations/" 2>/dev/null || true
+    if [[ -d "$TEMP_CLONE_DIR/backend/internal/database/migrations" ]]; then
+        cp "$TEMP_CLONE_DIR/backend/internal/database/migrations/"*.sql "$CONFIG_DIR/migrations/" 2>/dev/null || true
         chown -R juvia:juvia "$CONFIG_DIR/migrations"
     fi
 

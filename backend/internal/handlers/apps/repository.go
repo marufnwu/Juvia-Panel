@@ -337,20 +337,21 @@ func (r *AppRepository) GetConnectedServices(ctx context.Context, appID string) 
 // CreateApp creates a new app
 func (r *AppRepository) CreateApp(ctx context.Context, app *database.App) error {
 	query := `
-		INSERT INTO apps (id, name, status, health_status, runtime, runtime_version, 
+		INSERT INTO apps (id, name, status, health_status, runtime, runtime_version,
 			source_type, source_config, build_strategy, build_config, container_id, container_image,
-			internal_port, restart_policy, health_check_path, health_check_interval, 
+			internal_port, external_port, restart_policy, health_check_path, health_check_interval,
 			health_check_timeout, health_check_retries, cpu_limit, memory_limit_mb, memory_swap_mb,
-			created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			compose_config, compose_project, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	
+
 	_, err := r.db.ExecContext(ctx, query,
 		app.ID, app.Name, app.Status, app.HealthStatus, app.Runtime, app.RuntimeVersion,
 		app.SourceType, app.SourceConfig, app.BuildStrategy, app.BuildConfig,
-		app.ContainerID, app.ContainerImage, app.InternalPort, app.RestartPolicy,
+		app.ContainerID, app.ContainerImage, app.InternalPort, app.ExternalPort, app.RestartPolicy,
 		app.HealthCheckPath, app.HealthCheckInterval, app.HealthCheckTimeout, app.HealthCheckRetries,
-		app.CPULimit, app.MemoryLimitMB, app.MemorySwapMB, app.CreatedBy, app.CreatedAt, app.UpdatedAt,
+		app.CPULimit, app.MemoryLimitMB, app.MemorySwapMB, app.ComposeConfig, app.ComposeProject,
+		app.CreatedBy, app.CreatedAt, app.UpdatedAt,
 	)
 	
 	return err
@@ -371,21 +372,24 @@ func (r *AppRepository) CreateAppDomain(ctx context.Context, domain *database.Ap
 // UpdateApp updates an existing app
 func (r *AppRepository) UpdateApp(ctx context.Context, app *database.App) error {
 	query := `
-		UPDATE apps SET 
+		UPDATE apps SET
 			name = ?, status = ?, health_status = ?, runtime = ?, runtime_version = ?,
 			source_type = ?, source_config = ?, build_strategy = ?, build_config = ?,
-			container_id = ?, container_image = ?, internal_port = ?, restart_policy = ?,
-			health_check_path = ?, health_check_interval = ?, health_check_timeout = ?, health_check_retries = ?,
-			cpu_limit = ?, memory_limit_mb = ?, memory_swap_mb = ?, updated_at = ?
+			container_id = ?, container_image = ?, internal_port = ?, external_port = ?,
+			restart_policy = ?, health_check_path = ?, health_check_interval = ?,
+			health_check_timeout = ?, health_check_retries = ?, cpu_limit = ?,
+			memory_limit_mb = ?, memory_swap_mb = ?, compose_config = ?, compose_project = ?,
+			updated_at = ?
 		WHERE id = ?
 	`
-	
+
 	_, err := r.db.ExecContext(ctx, query,
 		app.Name, app.Status, app.HealthStatus, app.Runtime, app.RuntimeVersion,
 		app.SourceType, app.SourceConfig, app.BuildStrategy, app.BuildConfig,
-		app.ContainerID, app.ContainerImage, app.InternalPort, app.RestartPolicy,
+		app.ContainerID, app.ContainerImage, app.InternalPort, app.ExternalPort, app.RestartPolicy,
 		app.HealthCheckPath, app.HealthCheckInterval, app.HealthCheckTimeout, app.HealthCheckRetries,
-		app.CPULimit, app.MemoryLimitMB, app.MemorySwapMB, time.Now(), app.ID,
+		app.CPULimit, app.MemoryLimitMB, app.MemorySwapMB, app.ComposeConfig, app.ComposeProject,
+		time.Now(), app.ID,
 	)
 	
 	return err
