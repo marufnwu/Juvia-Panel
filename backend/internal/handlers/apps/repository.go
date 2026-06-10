@@ -114,10 +114,10 @@ func (r *AppRepository) ListApps(ctx context.Context, params ListAppsParams) ([]
 		err := rows.Scan(
 			&app.ID, &app.Name, &app.Status, &app.HealthStatus, &app.Runtime, &app.RuntimeVersion,
 			&app.SourceType, &app.SourceConfig, &app.BuildStrategy, &app.BuildConfig,
-			&app.ContainerID, &app.ContainerImage, &app.InternalPort, &app.RestartPolicy,
+			&app.ContainerID, &app.ContainerImage, &app.InternalPort, &app.ExternalPort, &app.RestartPolicy,
 			&app.HealthCheckPath, &app.HealthCheckInterval, &app.HealthCheckTimeout, &app.HealthCheckRetries,
-			&app.CPULimit, &app.MemoryLimitMB, &app.MemorySwapMB, &app.CreatedBy,
-			&app.CreatedAt, &app.UpdatedAt, &primaryDomain, &envCount, &volumeCount, &lastDeployedAt,
+			&app.CPULimit, &app.MemoryLimitMB, &app.MemorySwapMB, &app.ComposeConfig, &app.ComposeProject,
+			&app.CreatedBy, &app.CreatedAt, &app.UpdatedAt, &primaryDomain, &envCount, &volumeCount, &lastDeployedAt,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to scan app: %w", err)
