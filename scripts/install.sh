@@ -281,19 +281,11 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     # Install UI (server mode)
     if [[ -d "$TEMP_CLONE_DIR/frontend/.next" ]]; then
         rm -rf "$INSTALL_DIR/ui"
-        mkdir -p "$INSTALL_DIR/ui/.next"
-        # Copy Next.js build output
-        cp -r "$TEMP_CLONE_DIR/frontend/.next/standalone" "$INSTALL_DIR/ui/.next/standalone" 2>/dev/null || \
-            cp -r "$TEMP_CLONE_DIR/frontend/.next" "$INSTALL_DIR/ui/.next"
+        mkdir -p "$INSTALL_DIR/ui"
+        cp -r "$TEMP_CLONE_DIR/frontend/.next" "$INSTALL_DIR/ui/.next"
         cp "$TEMP_CLONE_DIR/frontend/package.json" "$INSTALL_DIR/ui/"
         cp "$TEMP_CLONE_DIR/frontend/next.config.js" "$INSTALL_DIR/ui/"
         cp "$TEMP_CLONE_DIR/frontend/.env.production" "$INSTALL_DIR/ui/" 2>/dev/null || true
-        # Copy static chunks (not included in standalone by default)
-        if [[ -d "$TEMP_CLONE_DIR/frontend/.next/static" ]]; then
-            mkdir -p "$INSTALL_DIR/ui/.next"
-            cp -r "$TEMP_CLONE_DIR/frontend/.next/static" "$INSTALL_DIR/ui/.next/static"
-        fi
-        # Copy node_modules for production runtime
         if [[ -d "$TEMP_CLONE_DIR/frontend/node_modules" ]]; then
             cp -r "$TEMP_CLONE_DIR/frontend/node_modules" "$INSTALL_DIR/ui/"
         fi
