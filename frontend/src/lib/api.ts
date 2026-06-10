@@ -227,6 +227,22 @@ export const api = {
         body: JSON.stringify({ deployment_id: deploymentId }),
       }),
 
+    uploadSource: async (id: string, file: File): Promise<{ status: string; file: string; size: number; message: string }> => {
+      const formData = new FormData()
+      formData.append('file', file)
+      const token = useAuthStore.getState().accessToken
+      const res = await fetch(`${API_BASE}/apps/${id}/upload`, {
+        method: 'POST',
+        body: formData,
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.message || 'Upload failed')
+      }
+      return res.json()
+    },
+
     // Environment variables
     getEnv: (id: string) =>
       request<{ app_id: string; variables: EnvVariable[] }>(`/apps/${id}/env`),

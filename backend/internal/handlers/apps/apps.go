@@ -1,14 +1,19 @@
 package apps
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +25,7 @@ import (
 	"panel-api/internal/websocket"
 
 	"github.com/gin-gonic/gin"
+	ziplib "archive/zip"
 )
 
 // Handler handles app-related HTTP requests
@@ -1852,15 +1858,31 @@ func (h *Handler) executeDeployment(app *database.App, deployment *database.Depl
 	
 	// Update deployment status to in_progress
 	h.repo.UpdateDeploymentStatus(ctx, deploymentID, "in_progress")
-	
+
 	if h.wsHub != nil {
 		websocket.EmitAppDeployProgress(h.wsHub, appID, deploymentID, "cloning", "Cloning repository...", 10)
 	}
-	
+
 	// Parse source config to get repo URL
 	var sourceConfig database.SourceConfig
 	database.ParseJSONField(&app.SourceConfig, &sourceConfig)
-	
+
+	// Determine build path based on source type
+	var buildPath string
+	if sourceConfig.Type == "upload" {
+		uploadDir := filepath.Join(h.config.DataDir, "apps", appID, "source")
+		if err := os.MkdirAll(uploadDir, 0755); err != nil {
+			h.handleDeploymentFailure(ctx, appID, deploymentID, "Failed to create upload directory: "+err.Error(), "build")
+			return
+		}
+		entries, err := os.ReadDir(uploadDir)
+		if err != nil || len(entries) == 0 {
+			h.handleDeploymentFailure(ctx, appID, deploymentID, "No source files uploaded. Please upload your project files before deploying.", "build")
+			return
+		}
+		buildPath = uploadDir
+	}
+
 	// Build parameters
 	buildParams := agent.BuildParams{
 		AppID:         appID,
@@ -1871,17 +1893,21 @@ func (h *Handler) executeDeployment(app *database.App, deployment *database.Depl
 		BuildStrategy: app.BuildStrategy,
 		BuildCommand:  buildConfig.BuildCommand,
 		StartCommand:  buildConfig.StartCommand,
+		BuildPath:     buildPath,
 	}
-	
+
 	// Execute build via agent client
+	log.Printf("[Deployment %s] Starting build: repo=%s branch=%s strategy=%s", deploymentID, sourceConfig.RepoURL, derefOrEmpty(deployment.Branch), app.BuildStrategy)
 	buildResult, err := h.agent.Build(ctx, buildParams)
 	if err != nil {
+		log.Printf("[Deployment %s] Build call error: %v", deploymentID, err)
 		h.handleDeploymentFailure(ctx, appID, deploymentID, err.Error(), "build")
 		return
 	}
-	
+
 	// Check build success
 	if !buildResult.Success {
+		log.Printf("[Deployment %s] Build returned Success=false: %s", deploymentID, buildResult.Error)
 		h.handleDeploymentFailure(ctx, appID, deploymentID, buildResult.Error, "build")
 		return
 	}
@@ -2163,12 +2189,224 @@ func (h *Handler) RemoveDomain(c *gin.Context) {
 
 // handleDeploymentFailure handles a failed deployment
 func (h *Handler) handleDeploymentFailure(ctx context.Context, appID, deploymentID, errorMsg, step string) {
+	log.Printf("[Deployment %s] FAILED at step '%s': %s", deploymentID, step, errorMsg)
 	h.repo.UpdateDeploymentStatus(ctx, deploymentID, "failed")
 	h.repo.UpdateAppStatus(ctx, appID, "failed")
-	
+	h.repo.UpdateDeploymentLogs(ctx, deploymentID, fmt.Sprintf("Deployment failed at step '%s': %s", step, errorMsg), 0)
+
 	if h.wsHub != nil {
 		websocket.EmitAppDeployFailed(h.wsHub, appID, deploymentID, errorMsg, step)
 	}
+}
+
+// UploadSource handles POST /apps/:id/upload
+func (h *Handler) UploadSource(c *gin.Context) {
+	requestID := c.GetString("request_id")
+	appID := c.Param("id")
+	ctx := context.Background()
+
+	app, err := h.repo.GetAppByID(ctx, appID)
+	if err != nil || app == nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{
+			Error:     "not_found",
+			Message:   "App not found",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	if err := c.Request.ParseMultipartForm(100 << 20); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:     "invalid_request",
+			Message:   "Failed to parse form: " + err.Error(),
+			RequestID: requestID,
+		})
+		return
+	}
+
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:     "invalid_request",
+			Message:   "No file provided",
+			RequestID: requestID,
+		})
+		return
+	}
+	defer file.Close()
+
+	fileName := header.Filename
+	ext := strings.ToLower(filepath.Ext(fileName))
+	if !strings.HasSuffix(fileName, ".tar.gz") && ext != ".zip" && ext != ".tar" {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:     "invalid_request",
+			Message:   "Unsupported file type. Use .zip, .tar, or .tar.gz",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	uploadDir := filepath.Join(h.config.DataDir, "apps", appID, "source")
+	os.RemoveAll(uploadDir)
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:     "internal_error",
+			Message:   "Failed to create upload directory",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	tmpFile := filepath.Join(os.TempDir(), fileName)
+	outFile, err := os.Create(tmpFile)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:     "internal_error",
+			Message:   "Failed to save uploaded file",
+			RequestID: requestID,
+		})
+		return
+	}
+	defer os.Remove(tmpFile)
+
+	if _, err := io.Copy(outFile, file); err != nil {
+		outFile.Close()
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:     "internal_error",
+			Message:   "Failed to save uploaded file",
+			RequestID: requestID,
+		})
+		return
+	}
+	outFile.Close()
+
+	if err := extractArchive(tmpFile, uploadDir); err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:     "internal_error",
+			Message:   "Failed to extract archive: " + err.Error(),
+			RequestID: requestID,
+		})
+		return
+	}
+
+	log.Printf("[App %s] Source files uploaded: %s (%d bytes)", appID, fileName, header.Size)
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "uploaded",
+		"file":    fileName,
+		"size":    header.Size,
+		"message": "Source files uploaded successfully",
+	})
+}
+
+// extractArchive extracts a zip, tar, or tar.gz archive to the destination directory
+func extractArchive(src, dest string) error {
+	ext := strings.ToLower(filepath.Ext(src))
+	if strings.HasSuffix(src, ".tar.gz") {
+		return extractTarGz(src, dest)
+	} else if ext == ".zip" {
+		return extractZip(src, dest)
+	} else if ext == ".tar" {
+		return extractTar(src, dest)
+	}
+	return fmt.Errorf("unsupported archive type: %s", ext)
+}
+
+func extractTarGz(src, dest string) error {
+	f, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	gzReader, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gzReader.Close()
+	return untar(gzReader, dest)
+}
+
+func extractZip(src, dest string) error {
+	r, err := ziplib.OpenReader(src)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	for _, file := range r.File {
+		if err := extractZipFile(file, dest); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func extractZipFile(file *ziplib.File, dest string) error {
+	path := filepath.Join(dest, file.Name)
+	if file.FileInfo().IsDir() {
+		return os.MkdirAll(path, 0755)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	outFile, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+	return copyZipFile(file, outFile)
+}
+
+func copyZipFile(file *ziplib.File, dest *os.File) error {
+	srcFile, err := file.Open()
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+	_, err = io.Copy(dest, srcFile)
+	return err
+}
+
+func extractTar(src, dest string) error {
+	f, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return untar(f, dest)
+}
+
+func untar(reader io.Reader, dest string) error {
+	tr := tar.NewReader(reader)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		path := filepath.Join(dest, header.Name)
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(path, 0755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				return err
+			}
+			outFile, err := os.Create(path)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(outFile, tr); err != nil {
+				outFile.Close()
+				return err
+			}
+			outFile.Close()
+		}
+	}
+	return nil
 }
 
 // decryptEnvValue decrypts an encrypted environment variable value
@@ -2314,15 +2552,31 @@ func (h *Handler) executeRollback(app *database.App, deployment *database.Deploy
 	
 	// Update deployment status to in_progress
 	h.repo.UpdateDeploymentStatus(ctx, deploymentID, "in_progress")
-	
+
 	if h.wsHub != nil {
 		websocket.EmitAppDeployProgress(h.wsHub, appID, deploymentID, "rollback", "Starting rollback...", 10)
 	}
-	
+
 	// Parse source config to get repo URL
 	var sourceConfig database.SourceConfig
 	database.ParseJSONField(&app.SourceConfig, &sourceConfig)
-	
+
+	// Determine build path based on source type
+	var buildPath string
+	if sourceConfig.Type == "upload" {
+		uploadDir := filepath.Join(h.config.DataDir, "apps", appID, "source")
+		if err := os.MkdirAll(uploadDir, 0755); err != nil {
+			h.handleDeploymentFailure(ctx, appID, deploymentID, "Failed to create upload directory: "+err.Error(), "build")
+			return
+		}
+		entries, err := os.ReadDir(uploadDir)
+		if err != nil || len(entries) == 0 {
+			h.handleDeploymentFailure(ctx, appID, deploymentID, "No source files uploaded. Please upload your project files before deploying.", "build")
+			return
+		}
+		buildPath = uploadDir
+	}
+
 	// Build parameters
 	buildParams := agent.BuildParams{
 		AppID:         appID,
@@ -2333,15 +2587,16 @@ func (h *Handler) executeRollback(app *database.App, deployment *database.Deploy
 		BuildStrategy: app.BuildStrategy,
 		BuildCommand:  buildConfig.BuildCommand,
 		StartCommand:  buildConfig.StartCommand,
+		BuildPath:     buildPath,
 	}
-	
+
 	// Execute build via agent client
 	buildResult, err := h.agent.Build(ctx, buildParams)
 	if err != nil {
 		h.handleDeploymentFailure(ctx, appID, deploymentID, err.Error(), "build")
 		return
 	}
-	
+
 	if !buildResult.Success {
 		h.handleDeploymentFailure(ctx, appID, deploymentID, buildResult.Error, "build")
 		return

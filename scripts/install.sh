@@ -267,6 +267,24 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
 
     chmod +x /usr/local/bin/juvia-{api,agent,cli}
 
+    # Install nixpacks for build support (auto/nixpacks build strategy)
+    if ! command -v nixpacks &> /dev/null; then
+        log_info "Installing nixpacks (build tool)..."
+        if ! command -v cargo &> /dev/null; then
+            log_info "Installing Rust toolchain for nixpacks..."
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        fi
+        NIXPACKS_DIR="$HOME/.cargo/bin"
+        if [[ -f "$NIXPACKS_DIR/nixpacks" ]]; then
+            cp "$NIXPACKS_DIR/nixpacks" /usr/local/bin/nixpacks
+            chmod +x /usr/local/bin/nixpacks
+            chown root:root /usr/local/bin/nixpacks
+            log_info "nixpacks installed"
+        else
+            log_warn "nixpacks not found after cargo install, skipping"
+        fi
+    fi
+
     # Build frontend
     if ! command -v npm &> /dev/null; then
         log_info "Installing Node.js..."
