@@ -87,6 +87,8 @@ export default function CreateAppPage() {
   const [newEnvKey, setNewEnvKey] = useState('')
   const [newEnvValue, setNewEnvValue] = useState('')
   const [newEnvSecret, setNewEnvSecret] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
 
   const steps = [
     { key: 'source' as Step, label: 'Source' },
@@ -100,13 +102,34 @@ export default function CreateAppPage() {
     mutationFn: async (data: CreateAppInput) => {
       return api.apps.create(data)
     },
-    onSuccess: (response) => {
+    onSuccess: async (response) => {
       const data = response as unknown as { id: string; name: string; deployment_id?: string }
-      addToast({
-        type: 'success',
-        title: 'App created',
-        message: `${data.name} has been created. Deployment started.`
-      })
+
+      if (config.sourceType === 'upload' && selectedFile) {
+        setUploading(true)
+        try {
+          await api.apps.uploadSource(data.id, selectedFile)
+          addToast({
+            type: 'success',
+            title: 'App created',
+            message: `${data.name} has been created and source files uploaded.`
+          })
+        } catch (err) {
+          addToast({
+            type: 'warning',
+            title: 'App created but upload failed',
+            message: `${data.name} created but source file upload failed. You can retry from the app page.`
+          })
+        } finally {
+          setUploading(false)
+        }
+      } else {
+        addToast({
+          type: 'success',
+          title: 'App created',
+          message: `${data.name} has been created. Deployment started.`
+        })
+      }
       router.push(`/apps/${data.id}`)
     },
     onError: (error: ApiError) => {
@@ -314,9 +337,23 @@ export default function CreateAppPage() {
                 <Upload className="w-12 h-12 text-slate-400 mx-auto mb-4" />
                 <p className="text-slate-400 mb-2">Drag and drop files here or click to upload</p>
                 <p className="text-xs text-slate-500">Supported: .zip, .tar.gz, .tar</p>
-                <button className="mt-4 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-md text-sm">
-                  Browse Files
-                </button>
+                <label className="mt-4 inline-block px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-md text-sm cursor-pointer">
+                  {selectedFile ? selectedFile.name : 'Browse Files'}
+                  <input
+                    type="file"
+                    accept=".zip,.tar.gz,.tar"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) setSelectedFile(file)
+                    }}
+                  />
+                </label>
+                {selectedFile && (
+                  <p className="mt-2 text-xs text-slate-500">
+                    {(selectedFile.size / 1024 / 1024).toFixed(2)} MB selected
+                  </p>
+                )}
               </div>
             )}
 
@@ -517,14 +554,14 @@ export default function CreateAppPage() {
               disabled={createAppMutation.isPending || !canProceed()}
               className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-md font-medium transition-colors disabled:opacity-50"
             >
-              {createAppMutation.isPending ? (
+{createAppMutation.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Creating...
+                  {uploading ? 'Uploading...' : 'Creating...'}
                 </>
               ) : (
                 <>
-                  Deploy App
+                  {config.sourceType === 'upload' && selectedFile ? 'Create & Upload' : 'Deploy App'}
                   <ChevronRight className="w-4 h-4" />
                 </>
               )}
