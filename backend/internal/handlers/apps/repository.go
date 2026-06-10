@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -69,9 +68,8 @@ func (r *AppRepository) ListApps(ctx context.Context, params ListAppsParams) ([]
 	var total int
 	countArgs := make([]interface{}, len(args))
 	copy(countArgs, args)
-	err := r.db.GetContext(ctx, &total, countQuery, countArgs...)
+	err := r.db.GetContext(ctx,&total, countQuery, countArgs...)
 	if err != nil {
-		log.Printf("[DEBUG] ListApps count query failed: query=%s, args=%v, err=%v", countQuery, countArgs, err)
 		return nil, 0, fmt.Errorf("failed to count apps: %w", err)
 	}
 	
@@ -99,11 +97,8 @@ func (r *AppRepository) ListApps(ctx context.Context, params ListAppsParams) ([]
 	args = append(args, params.PerPage, offset)
 	
 	// Execute query
-	log.Printf("[DEBUG] ListApps main query: %s", query)
-	log.Printf("[DEBUG] ListApps args: %v", args)
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		log.Printf("[DEBUG] ListApps query failed: %v", err)
 		return nil, 0, fmt.Errorf("failed to list apps: %w", err)
 	}
 	defer rows.Close()
@@ -125,7 +120,6 @@ func (r *AppRepository) ListApps(ctx context.Context, params ListAppsParams) ([]
 			&app.CreatedBy, &app.CreatedAt, &app.UpdatedAt, &primaryDomain, &envCount, &volumeCount, &lastDeployedAt,
 		)
 		if err != nil {
-			log.Printf("[DEBUG] ListApps scan failed: %v", err)
 			return nil, 0, fmt.Errorf("failed to scan app: %w", err)
 		}
 		
@@ -348,7 +342,7 @@ func (r *AppRepository) CreateApp(ctx context.Context, app *database.App) error 
 			internal_port, external_port, restart_policy, health_check_path, health_check_interval,
 			health_check_timeout, health_check_retries, cpu_limit, memory_limit_mb, memory_swap_mb,
 			compose_config, compose_project, created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := r.db.ExecContext(ctx, query,
