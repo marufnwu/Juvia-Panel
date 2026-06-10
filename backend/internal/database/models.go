@@ -61,6 +61,7 @@ type App struct {
 	ContainerID         *string   `db:"container_id" json:"container_id"`
 	ContainerImage      *string   `db:"container_image" json:"container_image"`
 	InternalPort        int       `db:"internal_port" json:"internal_port"`
+	ExternalPort        int       `db:"external_port" json:"external_port"`
 	RestartPolicy       string    `db:"restart_policy" json:"restart_policy"`
 	HealthCheckPath     string    `db:"health_check_path" json:"health_check_path"`
 	HealthCheckInterval int       `db:"health_check_interval" json:"health_check_interval"`
@@ -69,6 +70,8 @@ type App struct {
 	CPULimit            *float64  `db:"cpu_limit" json:"cpu_limit"`
 	MemoryLimitMB       *int      `db:"memory_limit_mb" json:"memory_limit_mb"`
 	MemorySwapMB        *int      `db:"memory_swap_mb" json:"memory_swap_mb"`
+	ComposeConfig       *string   `db:"compose_config" json:"compose_config"`
+	ComposeProject      *string   `db:"compose_project" json:"compose_project"`
 	CreatedBy           int       `db:"created_by" json:"created_by"`
 	CreatedAt           time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt           time.Time `db:"updated_at" json:"updated_at"`
@@ -81,6 +84,7 @@ type SourceConfig struct {
 	RepoURL     string `json:"repo_url,omitempty"`
 	Branch      string `json:"branch,omitempty"`
 	AutoDeploy  bool   `json:"auto_deploy,omitempty"`
+	SSHKey      string `json:"ssh_key,omitempty"`
 	LastCommit  string `json:"last_commit,omitempty"`
 	CommitMsg   string `json:"last_commit_message,omitempty"`
 	CommitAuthor string `json:"last_commit_author,omitempty"`
@@ -104,6 +108,39 @@ type HealthCheck struct {
 	Interval int    `json:"interval"`
 	Timeout  int    `json:"timeout"`
 	Retries  int    `json:"retries"`
+}
+
+// ComposeConfig represents Docker Compose configuration for an app.
+type ComposeConfig struct {
+	Version  string                     `json:"version,omitempty"`
+	Services map[string]ComposeService  `json:"services"`
+	Networks map[string]interface{}    `json:"networks,omitempty"`
+	Volumes  map[string]interface{}    `json:"volumes,omitempty"`
+}
+
+// ComposeService represents a single service in a Docker Compose file.
+type ComposeService struct {
+	Image       string            `json:"image,omitempty"`
+	Build       string            `json:"build,omitempty"`
+	Ports       []string          `json:"ports,omitempty"`
+	Environment map[string]string `json:"environment,omitempty"`
+	Volumes     []string          `json:"volumes,omitempty"`
+	DependsOn   []string          `json:"depends_on,omitempty"`
+	Command     string            `json:"command,omitempty"`
+	Restart     string            `json:"restart,omitempty"`
+}
+
+// ComposeServiceRecord represents a service in the compose_services table.
+type ComposeServiceRecord struct {
+	ID           string    `db:"id" json:"id"`
+	AppID        string    `db:"app_id" json:"app_id"`
+	ServiceName  string    `db:"service_name" json:"service_name"`
+	ContainerID  *string   `db:"container_id" json:"container_id"`
+	Image        *string   `db:"image" json:"image"`
+	InternalPort *int      `db:"internal_port" json:"internal_port"`
+	ExternalPort *int      `db:"external_port" json:"external_port"`
+	Status       string    `db:"status" json:"status"`
+	CreatedAt    time.Time `db:"created_at" json:"created_at"`
 }
 
 // AppDomain represents a domain attached to an app.

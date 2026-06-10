@@ -261,7 +261,7 @@ export const api = {
       request<{ data: Deployment[]; meta: { total: number; page: number; per_page: number; total_pages: number } }>(`/apps/${id}/deployments`, { params }),
 
     getDeploymentLogs: (appId: string, deploymentId: string) =>
-      request<{ logs: string }>(`/apps/${appId}/deployments/${deploymentId}/logs`),
+      request<{ deployment_id: string; lines: Array<{ timestamp: string; level: string; message: string }> }>(`/apps/${appId}/deployments/${deploymentId}/logs`),
 
     // Logs
     getLogs: (id: string, params?: { stream?: string; tail?: number }) =>
@@ -300,6 +300,37 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ content }),
       }),
+
+    // Redeploy
+    redeploy: (id: string) =>
+      request<{ deployment_id: string; status: string; message: string }>(`/apps/${id}/redeploy`, {
+        method: 'POST',
+      }),
+
+    // Metrics
+    getMetrics: (id: string) =>
+      request<{ app_id: string; cpu_percent: number; memory_mb: number; memory_limit_mb: number; network_rx: number; network_tx: number }>(`/apps/${id}/metrics`),
+
+    // Health
+    getHealth: (id: string) =>
+      request<{ app_id: string; status: string; health: string; container_id: string | null }>(`/apps/${id}/health`),
+
+    // Resources
+    updateResources: (id: string, data: { cpu_limit?: number; memory_limit_mb?: number }) =>
+      request<{ id: string; cpu_limit: number; memory_limit_mb: number; restarting: boolean }>(`/apps/${id}/resources`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+
+    // Compose services
+    getServices: (id: string) =>
+      request<{ app_id: string; services: Array<{ id: string; app_id: string; service_name: string; container_id: string | null; image: string | null; internal_port: number | null; external_port: number | null; status: string; created_at: string }> }>(`/apps/${id}/services`),
+
+    getServiceLogs: (appId: string, serviceName: string, params?: { stream?: string; tail?: number }) =>
+      request<{ app_id: string; service: string; stream: string; lines: LogLine[] }>(`/apps/${appId}/services/${serviceName}/logs`, { params }),
+
+    getServiceStats: (appId: string, serviceName: string) =>
+      request<{ app_id: string; service: string; cpu_percent: number; memory_mb: number; memory_limit_mb: number; network_rx: number; network_tx: number }>(`/apps/${appId}/services/${serviceName}/stats`),
   },
 
   // Services
@@ -503,6 +534,8 @@ export interface CreateAppInput {
     repo_url?: string
     branch?: string
     auto_deploy?: boolean
+    ssh_key?: string
+    compose_config?: string
   }
   build?: {
     strategy?: 'auto' | 'nixpacks' | 'dockerfile' | 'static' | 'custom'

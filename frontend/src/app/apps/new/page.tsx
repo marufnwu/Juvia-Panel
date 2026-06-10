@@ -27,6 +27,8 @@ interface AppConfig {
   sourceType: SourceType
   gitUrl: string
   branch: string
+  sshKey: string
+  composeConfig: string
   buildStrategy: 'auto' | 'nixpacks' | 'dockerfile' | 'static'
   appName: string
   domain: string
@@ -38,6 +40,8 @@ const initialConfig: AppConfig = {
   sourceType: null,
   gitUrl: '',
   branch: 'main',
+  sshKey: '',
+  composeConfig: '',
   buildStrategy: 'auto',
   appName: '',
   domain: '',
@@ -179,6 +183,8 @@ export default function CreateAppPage() {
         repo_url: config.gitUrl || undefined,
         branch: config.branch || undefined,
         auto_deploy: config.autoDeploy,
+        ssh_key: config.sshKey || undefined,
+        compose_config: config.sourceType === 'docker' ? config.composeConfig : undefined,
       },
       build: {
         strategy: config.buildStrategy,
@@ -310,6 +316,20 @@ export default function CreateAppPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">
+                    SSH Private Key
+                    <span className="text-slate-500 font-normal ml-1">(optional, for private repos)</span>
+                  </label>
+                  <textarea
+                    value={config.sshKey || ''}
+                    onChange={(e) => updateConfig('sshKey', e.target.value)}
+                    placeholder="Paste your private SSH key here..."
+                    rows={4}
+                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white font-mono text-xs placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">
                     Build Strategy
                   </label>
                   <select
@@ -365,6 +385,8 @@ export default function CreateAppPage() {
                 <textarea
                   placeholder="Paste your docker-compose.yml content here..."
                   rows={10}
+                  value={config.composeConfig}
+                  onChange={(e) => updateConfig('composeConfig', e.target.value)}
                   className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white font-mono text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
               </div>

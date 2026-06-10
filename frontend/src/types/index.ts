@@ -70,6 +70,7 @@ export interface CreateAppInput {
     repo_url?: string
     branch?: string
     auto_deploy?: boolean
+    compose_config?: string
   }
   build?: {
     strategy?: BuildStrategy

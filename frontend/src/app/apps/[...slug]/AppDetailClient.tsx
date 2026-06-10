@@ -171,6 +171,7 @@ export function AppDetailClient() {
   const [newEnvSecret, setNewEnvSecret] = useState(false)
   const [expandedDeployment, setExpandedDeployment] = useState<string | null>(null)
   const [deploymentLogs, setDeploymentLogs] = useState<Record<string, string>>({})
+  const [sourceFile, setSourceFile] = useState<File | null>(null)
 
   // Modal states
   const [showAddDomain, setShowAddDomain] = useState(false)
@@ -230,6 +231,17 @@ export function AppDetailClient() {
     enabled: showConnectService,
   })
 
+  // Fetch metrics
+  const { data: metricsData } = useQuery({
+    queryKey: ['app-metrics', appId],
+    queryFn: async () => {
+      const response = await api.apps.getMetrics(appId)
+      return response as unknown as { app_id: string; cpu_percent: number; memory_mb: number; memory_limit_mb: number; network_rx: number; network_tx: number }
+    },
+    enabled: !!appId && !isInvalidAppId,
+    refetchInterval: 10000,
+  })
+
   // Restart mutation
   const restartMutation = useMutation({
     mutationFn: () => api.apps.restart(appId),
@@ -277,6 +289,18 @@ export function AppDetailClient() {
     },
     onError: (error: ApiError) => {
       addToast({ type: 'error', title: 'Deployment failed', message: error.message })
+    },
+  })
+
+  const redeployMutation = useMutation({
+    mutationFn: () => api.apps.redeploy(appId),
+    onSuccess: () => {
+      addToast({ type: 'success', title: 'Redeploy started', message: 'Your app is being redeployed.' })
+      queryClient.invalidateQueries({ queryKey: ['app', appId] })
+      queryClient.invalidateQueries({ queryKey: ['app-deployments', appId] })
+    },
+    onError: (error: ApiError) => {
+      addToast({ type: 'error', title: 'Redeploy failed', message: error.message })
     },
   })
 
@@ -474,6 +498,21 @@ export function AppDetailClient() {
     }
   }, [liveLogs, autoScroll])
 
+  // Subscribe to build log events
+  useEffect(() => {
+    const ws = getWebSocket()
+    ws.connect()
+
+    const unsub = ws.on('app.deploy.log', (payload: unknown) => {
+      const data = payload as { app_id: string; deployment_id: string; level: string; message: string }
+      if (data.app_id === appId) {
+        setLiveLogs(prev => [...prev, `[${data.level}] ${data.message}`])
+      }
+    })
+
+    return () => unsub()
+  }, [appId])
+
   const toggleSecretVisibility = (key: string) => {
     const newSet = new Set(visibleSecrets)
     if (newSet.has(key)) {
@@ -545,12 +584,31 @@ export function AppDetailClient() {
     reader.readAsText(file)
   }
 
+  const handleSourceFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setSourceFile(file)
+  }
+
+  const uploadSourceMutation = useMutation({
+    mutationFn: (file: File) => api.apps.uploadSource(appId, file),
+    onSuccess: () => {
+      addToast({ type: 'success', title: 'Source uploaded', message: 'Source files uploaded successfully. Deploy to apply changes.' })
+      setSourceFile(null)
+      queryClient.invalidateQueries({ queryKey: ['app', appId] })
+    },
+    onError: (error: ApiError) => {
+      addToast({ type: 'error', title: 'Upload failed', message: error.message })
+    },
+  })
+
   const fetchDeploymentLogs = async (deploymentId: string) => {
     if (deploymentLogs[deploymentId]) return
     try {
       const response = await api.apps.getDeploymentLogs(appId, deploymentId)
-      const data = response as unknown as { logs: string }
-      setDeploymentLogs(prev => ({ ...prev, [deploymentId]: data.logs || 'No logs available' }))
+      const data = response as unknown as { deployment_id: string; lines: Array<{ timestamp: string; level: string; message: string }> }
+      const logText = data.lines?.map(line => `[${line.level}] ${line.message}`).join('\n') || 'No logs available'
+      setDeploymentLogs(prev => ({ ...prev, [deploymentId]: logText }))
     } catch {
       setDeploymentLogs(prev => ({ ...prev, [deploymentId]: 'Failed to fetch logs' }))
     }
@@ -620,6 +678,14 @@ export function AppDetailClient() {
             <RefreshCw className={`w-4 h-4 ${(app.status === 'deploying' || app.status === 'restarting') ? 'animate-spin' : ''}`} />
             Deploy
           </button>
+          <button
+            onClick={() => redeployMutation.mutate()}
+            disabled={redeployMutation.isPending}
+            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-md transition-colors"
+            title="Redeploy"
+          >
+            <RefreshCw className={`w-5 h-5 ${redeployMutation.isPending ? 'animate-spin' : ''}`} />
+          </button>
           {app.status === 'running' && (
             <button
               onClick={() => setShowRestartConfirm(true)}
@@ -652,7 +718,7 @@ export function AppDetailClient() {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-slate-700 mb-6 overflow-x-auto">
-        {['overview', 'deployments', 'logs', 'environment', 'settings'].map((tab) => (
+        {['overview', 'deployments', 'logs', 'metrics', 'environment', 'settings'].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -705,6 +771,49 @@ export function AppDetailClient() {
                       <dd className="text-white font-mono text-sm">{app.source.last_commit.slice(0, 7)}</dd>
                     </div>
                   )}
+                </>
+              )}
+              {app.source?.type === 'upload' && (
+                <>
+                  <div className="flex justify-between">
+                    <dt className="text-slate-400">Source Type</dt>
+                    <dd className="text-primary-400">Upload</dd>
+                  </div>
+                  <div className="mt-3">
+                    <input
+                      type="file"
+                      id="source-upload"
+                      className="hidden"
+                      accept=".zip,.tar,.tar.gz,.tgz"
+                      onChange={handleSourceFileChange}
+                    />
+                    <label
+                      htmlFor="source-upload"
+                      className="inline-flex items-center gap-2 px-3 py-2 bg-primary-600 hover:bg-primary-500 text-white text-sm rounded-lg cursor-pointer transition-colors"
+                    >
+                      <Upload className="w-4 h-4" />
+                      Select Files
+                    </label>
+                    {sourceFile && (
+                      <>
+                        <span className="ml-3 text-slate-400 text-sm">
+                          {sourceFile.name} ({(sourceFile.size / 1024 / 1024).toFixed(2)} MB)
+                        </span>
+                        <button
+                          onClick={() => uploadSourceMutation.mutate(sourceFile)}
+                          disabled={uploadSourceMutation.isPending}
+                          className="ml-3 inline-flex items-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-500 disabled:bg-slate-600 text-white text-sm rounded-lg transition-colors"
+                        >
+                          {uploadSourceMutation.isPending ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Upload className="w-4 h-4" />
+                          )}
+                          {uploadSourceMutation.isPending ? 'Uploading...' : 'Upload'}
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </>
               )}
               <div className="flex justify-between">
@@ -908,6 +1017,9 @@ export function AppDetailClient() {
                             'bg-slate-400'
                           }`} />
                           {deployment.status}
+                          {deployment.status === 'failed' && (
+                            <span className="ml-1 text-xs text-red-400/70">(view logs)</span>
+                          )}
                         </span>
                       </td>
                       <td className="px-4 py-4">
@@ -1124,6 +1236,53 @@ export function AppDetailClient() {
               <AlertTriangle className="w-4 h-4" />
               Changes require app restart to take effect.
             </p>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'metrics' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
+            <h2 className="text-lg font-medium text-white mb-4">Resource Usage</h2>
+            <dl className="space-y-4">
+              <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded">
+                <dt className="text-slate-400">CPU</dt>
+                <dd className="text-white font-mono text-lg">{app.status === 'running' ? `${(metricsData?.cpu_percent || 0).toFixed(1)}%` : '\u2014'}</dd>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded">
+                <dt className="text-slate-400">Memory</dt>
+                <dd className="text-white font-mono text-lg">
+                  {app.status === 'running'
+                    ? `${(metricsData?.memory_mb || 0).toFixed(0)} MB / ${(metricsData?.memory_limit_mb || 0).toFixed(0)} MB`
+                    : '\u2014'}
+                </dd>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded">
+                <dt className="text-slate-400">Network In</dt>
+                <dd className="text-white font-mono text-lg">{app.status === 'running' ? `${(metricsData?.network_rx || 0).toLocaleString()} B` : '\u2014'}</dd>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded">
+                <dt className="text-slate-400">Network Out</dt>
+                <dd className="text-white font-mono text-lg">{app.status === 'running' ? `${(metricsData?.network_tx || 0).toLocaleString()} B` : '\u2014'}</dd>
+              </div>
+            </dl>
+          </div>
+          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
+            <h2 className="text-lg font-medium text-white mb-4">Health Status</h2>
+            <dl className="space-y-4">
+              <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded">
+                <dt className="text-slate-400">Status</dt>
+                <dd className={`font-medium ${app.status === 'running' ? 'text-green-400' : app.status === 'failed' ? 'text-red-400' : 'text-amber-400'}`}>
+                  {app.status}
+                </dd>
+              </div>
+              <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded">
+                <dt className="text-slate-400">Health</dt>
+                <dd className={`font-medium ${app.health_status === 'healthy' ? 'text-green-400' : app.health_status === 'unhealthy' ? 'text-red-400' : 'text-slate-400'}`}>
+                  {app.health_status || '\u2014'}
+                </dd>
+              </div>
+            </dl>
           </div>
         </div>
       )}

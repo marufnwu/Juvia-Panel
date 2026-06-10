@@ -18,15 +18,16 @@ type HealthChecker struct {
 
 // healthMonitor holds health check state for a container
 type healthMonitor struct {
-	AppID       string
-	ContainerID string
-	Port        int
-	Path        string
-	Interval    int
-	Timeout     int
-	Retries     int
-	FailCount   int
-	stopChan    chan struct{}
+	AppID             string
+	ContainerID       string
+	Port              int
+	Path              string
+	Interval          int
+	Timeout           int
+	Retries           int
+	FailCount         int
+	stopChan          chan struct{}
+	StatusCallbackURL string
 }
 
 // NewHealthChecker creates a new HealthChecker
@@ -48,15 +49,16 @@ func (hc *HealthChecker) Start(ctx context.Context, params HealthCheckParams) {
 	}
 
 	monitor := &healthMonitor{
-		AppID:       params.AppID,
-		ContainerID: params.ContainerID,
-		Port:        params.Port,
-		Path:        params.Path,
-		Interval:    params.Interval,
-		Timeout:     params.Timeout,
-		Retries:     params.Retries,
-		FailCount:   0,
-		stopChan:    make(chan struct{}),
+		AppID:             params.AppID,
+		ContainerID:       params.ContainerID,
+		Port:              params.Port,
+		Path:              params.Path,
+		Interval:          params.Interval,
+		Timeout:           params.Timeout,
+		Retries:           params.Retries,
+		FailCount:         0,
+		stopChan:          make(chan struct{}),
+		StatusCallbackURL: params.StatusCallbackURL,
 	}
 
 	hc.checks[params.AppID] = monitor
@@ -109,6 +111,10 @@ func (hc *HealthChecker) monitor(m *healthMonitor) {
 			healthy := hc.checkHealth(m.Port, path, m.Timeout)
 
 			if healthy {
+				if m.FailCount > 0 {
+					// Recovered from failures
+					hc.sendStatusCallback(m, "healthy", m.Port)
+				}
 				m.FailCount = 0
 			} else {
 				m.FailCount++
@@ -117,10 +123,44 @@ func (hc *HealthChecker) monitor(m *healthMonitor) {
 				if m.FailCount >= m.Retries {
 					fmt.Printf("Health check failed %d times for app %s, restarting container\n", m.FailCount, m.AppID)
 					hc.restartContainer(m)
+					hc.sendStatusCallback(m, "restarted", m.Port)
 					m.FailCount = 0 // Reset after restart
 				}
 			}
 		}
+	}
+}
+
+// sendStatusCallback sends a health status event to the callback URL
+func (hc *HealthChecker) sendStatusCallback(m *healthMonitor, event string, port int) {
+	if m.StatusCallbackURL == "" {
+		return
+	}
+
+	body := fmt.Sprintf(`{"app_id":"%s","container_id":"%s","event":"%s","port":%d}`, m.AppID, m.ContainerID, event, port)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.StatusCallbackURL, strings.NewReader(body))
+	if err != nil {
+		fmt.Printf("Failed to create status callback request: %v\n", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("Failed to send status callback for app %s: %v\n", m.AppID, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		fmt.Printf("Status callback sent for app %s: %s\n", m.AppID, event)
+	} else {
+		fmt.Printf("Status callback failed for app %s: status %d\n", m.AppID, resp.StatusCode)
 	}
 }
 

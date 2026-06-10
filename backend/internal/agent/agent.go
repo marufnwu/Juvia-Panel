@@ -19,17 +19,28 @@ import (
 
 // Command types supported by the agent
 const (
-	CmdPing          = "ping"
-	CmdBuild         = "build"
-	CmdRun           = "run"
-	CmdStop          = "stop"
-	CmdStart         = "start"
-	CmdRestart       = "restart"
-	CmdLogs          = "logs"
-	CmdExec          = "exec"
-	CmdStats         = "stats"
-	CmdRemove        = "remove"
-	CmdHealthCheck   = "healthcheck"
+	CmdPing              = "ping"
+	CmdBuild             = "build"
+	CmdRun               = "run"
+	CmdStop              = "stop"
+	CmdStart             = "start"
+	CmdRestart           = "restart"
+	CmdLogs              = "logs"
+	CmdExec              = "exec"
+	CmdStats             = "stats"
+	CmdRemove            = "remove"
+	CmdHealthCheck       = "healthcheck"
+	CmdList              = "list"
+	CmdGetBuildStatus    = "get-build-status"
+	CmdComposeUp         = "compose_up"
+	CmdComposeDown       = "compose_down"
+	CmdComposeStop       = "compose_stop"
+	CmdComposeStart      = "compose_start"
+	CmdComposeRestart    = "compose_restart"
+	CmdComposeLogs       = "compose_logs"
+	CmdComposePs         = "compose_ps"
+	CmdComposeExec       = "compose_exec"
+	CmdComposeServices   = "compose_services"
 )
 
 // Default socket path
@@ -42,16 +53,17 @@ const DefaultAgentTCPPort = 9091
 
 // Agent handles Unix socket communication and command execution
 type Agent struct {
-	socketPath string
-	listener   net.Listener
-	buildMgr   *BuildManager
-	containers *ContainerManager
-	network    *NetworkManager
-	health     *HealthChecker
-	mu         sync.RWMutex
-	wg         sync.WaitGroup
-	ctx        context.Context
-	cancel     context.CancelFunc
+	socketPath  string
+	listener    net.Listener
+	buildMgr    *BuildManager
+	containers  *ContainerManager
+	network     *NetworkManager
+	health      *HealthChecker
+	composeMgr  *ComposeManager
+	mu          sync.RWMutex
+	wg          sync.WaitGroup
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 // Command represents an incoming agent command
@@ -81,6 +93,7 @@ func New(socketPath string) *Agent {
 		containers:  NewContainerManager(),
 		network:     NewNetworkManager(),
 		health:      NewHealthChecker(),
+		composeMgr:  NewComposeManager(),
 		ctx:         ctx,
 		cancel:      cancel,
 	}
@@ -366,6 +379,166 @@ func (a *Agent) processCommand(cmd Command) Response {
 			resp.Data = stats
 		}
 
+	case CmdGetBuildStatus:
+		var params struct {
+			AppID string `json:"app_id"`
+		}
+		if err := json.Unmarshal(cmd.Params, &params); err != nil {
+			resp.Status = "error"
+			resp.Error = fmt.Sprintf("invalid params: %v", err)
+			return resp
+		}
+		progress := a.buildMgr.GetBuildProgress(params.AppID)
+		resp.Status = "success"
+		resp.Data = progress
+
+	case CmdComposeUp:
+		var params ComposeUpParams
+		if err := json.Unmarshal(cmd.Params, &params); err != nil {
+			resp.Status = "error"
+			resp.Error = fmt.Sprintf("invalid params: %v", err)
+			return resp
+		}
+		result, err := a.composeMgr.ComposeUp(a.ctx, params)
+		if err != nil {
+			resp.Status = "error"
+			resp.Error = err.Error()
+		} else {
+			resp.Status = "success"
+			resp.Data = result
+		}
+
+	case CmdComposeDown:
+		var params ComposeDownParams
+		if err := json.Unmarshal(cmd.Params, &params); err != nil {
+			resp.Status = "error"
+			resp.Error = fmt.Sprintf("invalid params: %v", err)
+			return resp
+		}
+		result, err := a.composeMgr.ComposeDown(a.ctx, params)
+		if err != nil {
+			resp.Status = "error"
+			resp.Error = err.Error()
+		} else {
+			resp.Status = "success"
+			resp.Data = result
+		}
+
+	case CmdComposeStop:
+		var params ComposeStopParams
+		if err := json.Unmarshal(cmd.Params, &params); err != nil {
+			resp.Status = "error"
+			resp.Error = fmt.Sprintf("invalid params: %v", err)
+			return resp
+		}
+		result, err := a.composeMgr.ComposeStop(a.ctx, params)
+		if err != nil {
+			resp.Status = "error"
+			resp.Error = err.Error()
+		} else {
+			resp.Status = "success"
+			resp.Data = result
+		}
+
+	case CmdComposeStart:
+		var params ComposeStartParams
+		if err := json.Unmarshal(cmd.Params, &params); err != nil {
+			resp.Status = "error"
+			resp.Error = fmt.Sprintf("invalid params: %v", err)
+			return resp
+		}
+		result, err := a.composeMgr.ComposeStart(a.ctx, params)
+		if err != nil {
+			resp.Status = "error"
+			resp.Error = err.Error()
+		} else {
+			resp.Status = "success"
+			resp.Data = result
+		}
+
+	case CmdComposeRestart:
+		var params ComposeRestartParams
+		if err := json.Unmarshal(cmd.Params, &params); err != nil {
+			resp.Status = "error"
+			resp.Error = fmt.Sprintf("invalid params: %v", err)
+			return resp
+		}
+		result, err := a.composeMgr.ComposeRestart(a.ctx, params)
+		if err != nil {
+			resp.Status = "error"
+			resp.Error = err.Error()
+		} else {
+			resp.Status = "success"
+			resp.Data = result
+		}
+
+	case CmdComposeLogs:
+		var params ComposeLogsParams
+		if err := json.Unmarshal(cmd.Params, &params); err != nil {
+			resp.Status = "error"
+			resp.Error = fmt.Sprintf("invalid params: %v", err)
+			return resp
+		}
+		logs, err := a.composeMgr.ComposeLogs(a.ctx, params)
+		if err != nil {
+			resp.Status = "error"
+			resp.Error = err.Error()
+		} else {
+			resp.Status = "success"
+			resp.Data = logs
+		}
+
+	case CmdComposePs:
+		var params ComposePsParams
+		if err := json.Unmarshal(cmd.Params, &params); err != nil {
+			resp.Status = "error"
+			resp.Error = fmt.Sprintf("invalid params: %v", err)
+			return resp
+		}
+		services, err := a.composeMgr.ComposePs(a.ctx, params)
+		if err != nil {
+			resp.Status = "error"
+			resp.Error = err.Error()
+		} else {
+			resp.Status = "success"
+			resp.Data = services
+		}
+
+	case CmdComposeExec:
+		var params ComposeExecParams
+		if err := json.Unmarshal(cmd.Params, &params); err != nil {
+			resp.Status = "error"
+			resp.Error = fmt.Sprintf("invalid params: %v", err)
+			return resp
+		}
+		result, err := a.composeMgr.ComposeExec(a.ctx, params)
+		if err != nil {
+			resp.Status = "error"
+			resp.Error = err.Error()
+		} else {
+			resp.Status = "success"
+			resp.Data = result
+		}
+
+	case CmdComposeServices:
+		var params struct {
+			ProjectName string `json:"project_name"`
+			ComposeFile string `json:"compose_file"`
+		}
+		if err := json.Unmarshal(cmd.Params, &params); err != nil {
+			resp.Status = "error"
+			resp.Error = fmt.Sprintf("invalid params: %v", err)
+			return resp
+		}
+		services, err := a.composeMgr.ComposeServices(a.ctx, params.ProjectName, params.ComposeFile)
+		if err != nil {
+			resp.Status = "error"
+			resp.Error = err.Error()
+		} else {
+			resp.Status = "success"
+			resp.Data = services
+		}
+
 	default:
 		resp.Status = "error"
 		resp.Error = fmt.Sprintf("unknown command: %s", cmd.Type)
@@ -391,13 +564,14 @@ func (a *Agent) EnsureNetwork(ctx context.Context) error {
 
 // HealthCheckParams holds parameters for starting a health check
 type HealthCheckParams struct {
-	AppID       string
-	ContainerID string
-	Port        int
-	Path        string
-	Interval    int
-	Timeout     int
-	Retries     int
+	AppID             string
+	ContainerID       string
+	Port              int
+	Path              string
+	Interval          int
+	Timeout           int
+	Retries           int
+	StatusCallbackURL string
 }
 
 // StartHealthCheck begins monitoring container health
@@ -421,6 +595,7 @@ type BuildParams struct {
 	BuildCommand  string `json:"build_command"`
 	StartCommand  string `json:"start_command"`
 	BuildPath     string `json:"build_path"` // repo clone destination
+	SSHPrivateKey string `json:"ssh_private_key,omitempty"`
 }
 
 // BuildResult holds the result of a build operation
@@ -708,14 +883,30 @@ func (c *Client) Build(ctx context.Context, params BuildParams) (*BuildResult, e
 	if resp.Status != "success" {
 		return nil, fmt.Errorf("build failed: %s", resp.Error)
 	}
-	result := &BuildResult{}
-	if err := unmarshalResponse(resp.Data, result); err != nil {
-		return nil, err
+		result := &BuildResult{}
+		if err := unmarshalResponse(resp.Data, result); err != nil {
+			return nil, err
+		}
+		return result, nil
 	}
-	return result, nil
-}
 
-// Run creates and starts a container
+	// GetBuildStatus returns the current build progress for an app
+	func (c *Client) GetBuildStatus(ctx context.Context, appID string) (*BuildProgress, error) {
+		resp, err := c.sendCommand(CmdGetBuildStatus, map[string]string{"app_id": appID})
+		if err != nil {
+			return nil, err
+		}
+		if resp.Status != "success" {
+			return nil, fmt.Errorf("get build status failed: %s", resp.Error)
+		}
+		progress := &BuildProgress{}
+		if err := unmarshalResponse(resp.Data, progress); err != nil {
+			return nil, err
+		}
+		return progress, nil
+	}
+
+	// Run creates and starts a container
 func (c *Client) Run(ctx context.Context, params RunParams) (*RunResult, error) {
 	resp, err := c.sendCommand(CmdRun, params)
 	if err != nil {
@@ -827,6 +1018,22 @@ func (c *Client) Remove(ctx context.Context, containerID string, force bool) err
 	return nil
 }
 
+// ListContainers lists all containers managed by the agent
+func (c *Client) ListContainers(ctx context.Context) ([]*ContainerInfo, error) {
+	resp, err := c.sendCommand(CmdList, nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status != "success" {
+		return nil, fmt.Errorf("list containers failed: %s", resp.Error)
+	}
+	containers := []*ContainerInfo{}
+	if err := unmarshalResponse(resp.Data, &containers); err != nil {
+		return nil, err
+	}
+	return containers, nil
+}
+
 // StartHealthCheck starts monitoring a container's health
 func (c *Client) StartHealthCheck(ctx context.Context, params HealthCheckParams) error {
 	resp, err := c.sendCommand(CmdHealthCheck, params)
@@ -837,6 +1044,153 @@ func (c *Client) StartHealthCheck(ctx context.Context, params HealthCheckParams)
 		return fmt.Errorf("health check failed: %s", resp.Error)
 	}
 	return nil
+}
+
+// ComposeUp brings up a docker compose project
+func (c *Client) ComposeUp(ctx context.Context, params ComposeUpParams) (*ComposeResult, error) {
+	resp, err := c.sendCommand(CmdComposeUp, params)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status != "success" {
+		return nil, fmt.Errorf("compose up failed: %s", resp.Error)
+	}
+	result := &ComposeResult{}
+	if err := unmarshalResponse(resp.Data, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// ComposeDown brings down a docker compose project
+func (c *Client) ComposeDown(ctx context.Context, params ComposeDownParams) (*ComposeResult, error) {
+	resp, err := c.sendCommand(CmdComposeDown, params)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status != "success" {
+		return nil, fmt.Errorf("compose down failed: %s", resp.Error)
+	}
+	result := &ComposeResult{}
+	if err := unmarshalResponse(resp.Data, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// ComposeStop stops a docker compose project
+func (c *Client) ComposeStop(ctx context.Context, params ComposeStopParams) (*ComposeResult, error) {
+	resp, err := c.sendCommand(CmdComposeStop, params)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status != "success" {
+		return nil, fmt.Errorf("compose stop failed: %s", resp.Error)
+	}
+	result := &ComposeResult{}
+	if err := unmarshalResponse(resp.Data, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// ComposeStart starts a docker compose project
+func (c *Client) ComposeStart(ctx context.Context, params ComposeStartParams) (*ComposeResult, error) {
+	resp, err := c.sendCommand(CmdComposeStart, params)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status != "success" {
+		return nil, fmt.Errorf("compose start failed: %s", resp.Error)
+	}
+	result := &ComposeResult{}
+	if err := unmarshalResponse(resp.Data, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// ComposeRestart restarts a docker compose project
+func (c *Client) ComposeRestart(ctx context.Context, params ComposeRestartParams) (*ComposeResult, error) {
+	resp, err := c.sendCommand(CmdComposeRestart, params)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status != "success" {
+		return nil, fmt.Errorf("compose restart failed: %s", resp.Error)
+	}
+	result := &ComposeResult{}
+	if err := unmarshalResponse(resp.Data, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// ComposeLogs retrieves logs from a docker compose project
+func (c *Client) ComposeLogs(ctx context.Context, params ComposeLogsParams) ([]LogLine, error) {
+	resp, err := c.sendCommand(CmdComposeLogs, params)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status != "success" {
+		return nil, fmt.Errorf("compose logs failed: %s", resp.Error)
+	}
+	var logs []LogLine
+	if err := unmarshalResponse(resp.Data, &logs); err != nil {
+		return nil, err
+	}
+	return logs, nil
+}
+
+// ComposePs lists services in a docker compose project
+func (c *Client) ComposePs(ctx context.Context, params ComposePsParams) ([]ComposeServiceInfo, error) {
+	resp, err := c.sendCommand(CmdComposePs, params)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status != "success" {
+		return nil, fmt.Errorf("compose ps failed: %s", resp.Error)
+	}
+	var services []ComposeServiceInfo
+	if err := unmarshalResponse(resp.Data, &services); err != nil {
+		return nil, err
+	}
+	return services, nil
+}
+
+// ComposeExec executes a command in a compose service
+func (c *Client) ComposeExec(ctx context.Context, params ComposeExecParams) (*ExecResult, error) {
+	resp, err := c.sendCommand(CmdComposeExec, params)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status != "success" {
+		return nil, fmt.Errorf("compose exec failed: %s", resp.Error)
+	}
+	result := &ExecResult{}
+	if err := unmarshalResponse(resp.Data, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// ComposeServices lists service names in a compose project
+func (c *Client) ComposeServices(ctx context.Context, projectName, composeFile string) ([]string, error) {
+	resp, err := c.sendCommand(CmdComposeServices, map[string]string{
+		"project_name": projectName,
+		"compose_file": composeFile,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status != "success" {
+		return nil, fmt.Errorf("compose services failed: %s", resp.Error)
+	}
+	var services []string
+	if err := unmarshalResponse(resp.Data, &services); err != nil {
+		return nil, err
+	}
+	return services, nil
 }
 
 // Helper functions

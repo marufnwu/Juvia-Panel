@@ -31,6 +31,7 @@ import (
 	"panel-api/internal/handlers/users"
 	"panel-api/internal/middleware"
 	"panel-api/internal/proxy"
+	svc "panel-api/internal/services"
 	"panel-api/internal/websocket"
 
 	"github.com/gin-gonic/gin"
@@ -119,7 +120,7 @@ func main() {
 		wsHub.ServeWs(c.Writer, c.Request)
 	})
 
-	appsHandler := apps.NewHandler(db, cfg, agentClient, wsHub)
+	appsHandler := apps.NewHandler(db, cfg, agentClient, wsHub, caddyMgr)
 	deploymentsHandler := deployments.NewHandler(db, deployments.NewDeploymentRepositoryAdapter(db), agentClient, wsHub)
 	servicesHandler := services.NewHandler(db, cfg)
 	serverHandler := server.NewHandler()
@@ -132,8 +133,22 @@ func main() {
 	notificationsHandler := notifications.NewHandler(db)
 	templatesHandler := templates.NewHandler()
 
+	if agentClient != nil {
+		reconciler := svc.NewAppReconciler(db, agentClient, 60*time.Second)
+		reconciler.Start()
+	}
+
 	v1 := router.Group("/api/v1")
 	{
+		internalGroup := v1.Group("/internal")
+		{
+			internalGroup.POST("/health-event", func(c *gin.Context) {
+				c.Set("db", db)
+				c.Set("config", cfg)
+				appsHandler.HandleHealthEvent(c)
+			})
+		}
+
 		authGroup := v1.Group("/auth")
 		authGroup.Use(middleware.RateLimitAuth(cfg))
 		{
@@ -340,6 +355,44 @@ func main() {
 				c.Set("db", db)
 				c.Set("config", cfg)
 				appsHandler.UploadSource(c)
+			})
+			appsGroup.GET("/:id/deployments/:deploymentId/logs", middleware.RequireRole("admin", "owner", "developer", "viewer"), func(c *gin.Context) {
+				c.Set("db", db)
+				appsHandler.GetAppDeploymentLogs(c)
+			})
+			appsGroup.GET("/:id/domains", middleware.RequireRole("admin", "owner", "developer", "viewer"), func(c *gin.Context) {
+				c.Set("db", db)
+				appsHandler.GetAppDomains(c)
+			})
+			appsGroup.POST("/:id/redeploy", middleware.RequireRole("admin", "owner", "developer"), func(c *gin.Context) {
+				c.Set("db", db)
+				c.Set("config", cfg)
+				appsHandler.RedeployApp(c)
+			})
+			appsGroup.GET("/:id/metrics", middleware.RequireRole("admin", "owner", "developer", "viewer"), func(c *gin.Context) {
+				c.Set("db", db)
+				appsHandler.GetAppMetrics(c)
+			})
+			appsGroup.GET("/:id/health", middleware.RequireRole("admin", "owner", "developer", "viewer"), func(c *gin.Context) {
+				c.Set("db", db)
+				appsHandler.GetAppHealthStatus(c)
+			})
+			appsGroup.PUT("/:id/resources", middleware.RequireRole("admin", "owner"), func(c *gin.Context) {
+				c.Set("db", db)
+				c.Set("config", cfg)
+				appsHandler.UpdateAppResources(c)
+			})
+			appsGroup.GET("/:id/services", middleware.RequireRole("admin", "owner", "developer", "viewer"), func(c *gin.Context) {
+				c.Set("db", db)
+				appsHandler.GetAppServices(c)
+			})
+			appsGroup.GET("/:id/services/:service/logs", middleware.RequireRole("admin", "owner", "developer", "viewer"), func(c *gin.Context) {
+				c.Set("db", db)
+				appsHandler.GetAppServiceLogs(c)
+			})
+			appsGroup.GET("/:id/services/:service/stats", middleware.RequireRole("admin", "owner", "developer", "viewer"), func(c *gin.Context) {
+				c.Set("db", db)
+				appsHandler.GetAppServiceStats(c)
 			})
 		}
 

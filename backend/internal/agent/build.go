@@ -17,13 +17,24 @@ import (
 
 // BuildManager handles Docker image builds
 type BuildManager struct {
-	dataDir string
+	dataDir  string
+	mu       sync.RWMutex
+	progress map[string]*BuildProgress // appID -> current build progress
+}
+
+// BuildProgress holds the current state of an in-progress build
+type BuildProgress struct {
+	AppID    string    `json:"app_id"`
+	Status   string    `json:"status"` // running, complete, failed
+	Logs     []LogLine `json:"logs"`
+	Duration int       `json:"duration"`
 }
 
 // NewBuildManager creates a new BuildManager
 func NewBuildManager() *BuildManager {
 	return &BuildManager{
-		dataDir: "/var/panel",
+		dataDir:  "/var/panel",
+		progress: make(map[string]*BuildProgress),
 	}
 }
 
@@ -38,6 +49,25 @@ func (bm *BuildManager) Build(ctx context.Context, params BuildParams) (*BuildRe
 	result := &BuildResult{
 		BuildLogs: make([]LogLine, 0),
 	}
+
+	// Track progress
+	bm.mu.Lock()
+	bm.progress[params.AppID] = &BuildProgress{
+		AppID:  params.AppID,
+		Status: "running",
+		Logs:   make([]LogLine, 0),
+	}
+	bm.mu.Unlock()
+
+	defer func() {
+		bm.mu.Lock()
+		if p, ok := bm.progress[params.AppID]; ok {
+			p.Status = "complete"
+			p.Duration = int(time.Since(startTime).Seconds())
+			p.Logs = result.BuildLogs
+		}
+		bm.mu.Unlock()
+	}()
 
 	// Generate commit SHA from params or use timestamp
 	commitSHA := params.Commit
@@ -61,7 +91,7 @@ func (bm *BuildManager) Build(ctx context.Context, params BuildParams) (*BuildRe
 
 	if params.RepoURL != "" {
 		bm.addLog(result, "info", fmt.Sprintf("Cloning repository from %s...", params.RepoURL))
-		repoDir, err := bm.CloneRepo(ctx, params.AppID, params.RepoURL, params.Branch)
+		repoDir, err := bm.CloneRepo(ctx, params.AppID, params.RepoURL, params.Branch, params.SSHPrivateKey)
 		if err != nil {
 			result.Success = false
 			result.Error = fmt.Sprintf("failed to clone repository: %v", err)
@@ -102,7 +132,7 @@ func (bm *BuildManager) Build(ctx context.Context, params BuildParams) (*BuildRe
 }
 
 // CloneRepo clones a Git repository to the specified path
-func (bm *BuildManager) CloneRepo(ctx context.Context, appID, repoURL, branch string) (string, error) {
+func (bm *BuildManager) CloneRepo(ctx context.Context, appID, repoURL, branch, sshPrivateKey string) (string, error) {
 	if branch == "" {
 		branch = "main"
 	}
@@ -113,9 +143,32 @@ func (bm *BuildManager) CloneRepo(ctx context.Context, appID, repoURL, branch st
 	// Clean up existing directory
 	os.RemoveAll(repoDir)
 
-	// Clone the repository
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", branch, repoURL, repoDir)
-	cmd.Stdout = nil
+	var cmd *exec.Cmd
+
+	if sshPrivateKey != "" {
+		keyFile, err := os.CreateTemp("", "juvia-ssh-*")
+		if err != nil {
+			return "", fmt.Errorf("failed to create SSH key temp file: %w", err)
+		}
+		if _, err := keyFile.Write([]byte(sshPrivateKey)); err != nil {
+			os.Remove(keyFile.Name())
+			return "", fmt.Errorf("failed to write SSH key: %w", err)
+		}
+		if err := keyFile.Chmod(0600); err != nil {
+			os.Remove(keyFile.Name())
+			return "", fmt.Errorf("failed to set SSH key permissions: %w", err)
+		}
+		keyFile.Close()
+
+		gitSSHCommand := fmt.Sprintf("ssh -i %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null", keyFile.Name())
+		cmd = exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", branch, repoURL, repoDir)
+		cmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+gitSSHCommand)
+
+		defer os.Remove(keyFile.Name())
+	} else {
+		cmd = exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", branch, repoURL, repoDir)
+	}
+
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -274,11 +327,11 @@ func (bm *BuildManager) buildWithNixpacks(ctx context.Context, result *BuildResu
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		readStream(result, stdout, "stdout")
+		bm.readStream(result, stdout, "stdout")
 	}()
 	go func() {
 		defer wg.Done()
-		readStream(result, stderr, "stderr")
+		bm.readStream(result, stderr, "stderr")
 	}()
 
 	wg.Wait()
@@ -506,15 +559,50 @@ func (bm *BuildManager) CleanupBuildLogs(deploymentID string) {
 
 // addLog adds a log entry to the result
 func (bm *BuildManager) addLog(result *BuildResult, level, message string) {
-	result.BuildLogs = append(result.BuildLogs, LogLine{
+	logLine := LogLine{
 		Timestamp: time.Now().Format(time.RFC3339),
 		Level:     level,
 		Message:   message,
-	})
+	}
+	result.BuildLogs = append(result.BuildLogs, logLine)
+	bm.syncProgress(result)
+}
+
+// syncProgress syncs the latest build log entries to the in-progress tracking map
+func (bm *BuildManager) syncProgress(result *BuildResult) {
+	bm.mu.RLock()
+	defer bm.mu.RUnlock()
+	for _, p := range bm.progress {
+		if p.Status == "running" {
+			targetLen := len(result.BuildLogs)
+			if targetLen > len(p.Logs) {
+				p.Logs = append(p.Logs, result.BuildLogs[len(p.Logs):targetLen]...)
+			}
+		}
+	}
+}
+
+// GetBuildProgress returns the current build progress for an app
+func (bm *BuildManager) GetBuildProgress(appID string) *BuildProgress {
+	bm.mu.RLock()
+	defer bm.mu.RUnlock()
+	p, ok := bm.progress[appID]
+	if !ok {
+		return nil
+	}
+	// Return a copy to avoid races
+	cp := &BuildProgress{
+		AppID:    p.AppID,
+		Status:   p.Status,
+		Duration: p.Duration,
+		Logs:     make([]LogLine, len(p.Logs)),
+	}
+	copy(cp.Logs, p.Logs)
+	return cp
 }
 
 // readStream reads from a stream and adds to build logs
-func readStream(result *BuildResult, r io.Reader, streamType string) {
+func (bm *BuildManager) readStream(result *BuildResult, r io.Reader, streamType string) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		result.BuildLogs = append(result.BuildLogs, LogLine{
@@ -522,6 +610,7 @@ func readStream(result *BuildResult, r io.Reader, streamType string) {
 			Level:     "info",
 			Message:   scanner.Text(),
 		})
+		bm.syncProgress(result)
 	}
 }
 

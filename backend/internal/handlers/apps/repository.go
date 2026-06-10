@@ -549,8 +549,14 @@ func (r *AppRepository) UpdateDeploymentStatus(ctx context.Context, id string, s
 
 // UpdateAppContainer updates app container information after deployment
 func (r *AppRepository) UpdateAppContainer(ctx context.Context, appID, containerID, image string, port int) error {
-	query := `UPDATE apps SET container_id = ?, container_image = ?, internal_port = ?, updated_at = ? WHERE id = ?`
+	query := `UPDATE apps SET container_id = ?, container_image = ?, external_port = ?, updated_at = ? WHERE id = ?`
 	_, err := r.db.ExecContext(ctx, query, containerID, image, port, time.Now(), appID)
+	return err
+}
+
+// UpdateAppPort updates the external port for an app (used by health checker callbacks)
+func (r *AppRepository) UpdateAppPort(ctx context.Context, appID string, port int) error {
+	_, err := r.db.ExecContext(ctx, "UPDATE apps SET external_port = ?, updated_at = ? WHERE id = ?", port, time.Now(), appID)
 	return err
 }
 
@@ -588,5 +594,38 @@ func (r *AppRepository) GetDomainOwner(ctx context.Context, domain string) (stri
 // DeleteAppDomain removes a domain from an app
 func (r *AppRepository) DeleteAppDomain(ctx context.Context, appID, domain string) error {
 	_, err := r.db.ExecContext(ctx, "DELETE FROM app_domains WHERE app_id = ? AND domain = ?", appID, domain)
+	return err
+}
+
+// GetComposeServices returns all compose services for an app
+func (r *AppRepository) GetComposeServices(ctx context.Context, appID string) ([]database.ComposeServiceRecord, error) {
+	var services []database.ComposeServiceRecord
+	query := `SELECT id, app_id, service_name, container_id, image, internal_port, external_port, status, created_at
+		FROM compose_services WHERE app_id = ? ORDER BY service_name`
+	err := r.db.SelectContext(ctx, &services, query, appID)
+	if err != nil {
+		return nil, err
+	}
+	return services, nil
+}
+
+// CreateComposeService creates a new compose service record
+func (r *AppRepository) CreateComposeService(ctx context.Context, svc *database.ComposeServiceRecord) error {
+	query := `INSERT INTO compose_services (id, app_id, service_name, container_id, image, internal_port, external_port, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err := r.db.ExecContext(ctx, query, svc.ID, svc.AppID, svc.ServiceName, svc.ContainerID, svc.Image, svc.InternalPort, svc.ExternalPort, svc.Status, svc.CreatedAt)
+	return err
+}
+
+// UpdateComposeService updates a compose service record
+func (r *AppRepository) UpdateComposeService(ctx context.Context, svc *database.ComposeServiceRecord) error {
+	query := `UPDATE compose_services SET container_id = ?, image = ?, internal_port = ?, external_port = ?, status = ? WHERE id = ?`
+	_, err := r.db.ExecContext(ctx, query, svc.ContainerID, svc.Image, svc.InternalPort, svc.ExternalPort, svc.Status, svc.ID)
+	return err
+}
+
+// DeleteComposeServices deletes all compose services for an app
+func (r *AppRepository) DeleteComposeServices(ctx context.Context, appID string) error {
+	_, err := r.db.ExecContext(ctx, "DELETE FROM compose_services WHERE app_id = ?", appID)
 	return err
 }

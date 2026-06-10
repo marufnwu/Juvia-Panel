@@ -91,8 +91,9 @@ export function DeploymentList({ appId, onDeploymentSelect, onRollback }: Deploy
     if (deploymentLogs[deploymentId]) return
     try {
       const response = await api.apps.getDeploymentLogs(appId, deploymentId)
-      const data = response as unknown as { logs: string }
-      setDeploymentLogs(prev => ({ ...prev, [deploymentId]: data.logs || 'No logs available' }))
+      const data = response as unknown as { deployment_id: string; lines: Array<{ timestamp: string; level: string; message: string }> }
+      const logText = data.lines?.map(line => `[${line.level}] ${line.message}`).join('\n') || 'No logs available'
+      setDeploymentLogs(prev => ({ ...prev, [deploymentId]: logText }))
     } catch {
       setDeploymentLogs(prev => ({ ...prev, [deploymentId]: 'Failed to fetch logs' }))
     }

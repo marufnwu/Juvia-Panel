@@ -52,24 +52,13 @@ export function DeploymentLogs({ appId, deploymentId, isStreaming = false }: Dep
     queryKey: ['deployment-logs', deploymentId],
     queryFn: async () => {
       const response = await api.apps.getDeploymentLogs(appId, deploymentId)
-      const data = response as unknown as { logs: string }
-      // Parse logs - assuming newline-delimited format
-      const lines = (data.logs || '').split('\n').filter(Boolean).map((line, i) => {
-        try {
-          const parsed = JSON.parse(line)
-          return {
-            timestamp: parsed.timestamp || new Date().toISOString(),
-            stream: parsed.stream || 'stdout',
-            message: parsed.message || line,
-          }
-        } catch {
-          return {
-            timestamp: new Date().toISOString(),
-            stream: 'stdout' as const,
-            message: line,
-          }
-        }
-      })
+      const data = response as unknown as { deployment_id: string; lines: Array<{ timestamp: string; level: string; message: string }> }
+      // Map backend format to component format
+      const lines = (data.lines || []).map((line): { timestamp: string; stream: 'stdout' | 'stderr'; message: string } => ({
+        timestamp: line.timestamp || new Date().toISOString(),
+        stream: line.level === 'error' ? 'stderr' : 'stdout',
+        message: line.message,
+      }))
       return lines
     },
     enabled: !!deploymentId,

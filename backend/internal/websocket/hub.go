@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"panel-api/internal/agent"
 	"panel-api/internal/config"
 
 	"github.com/gorilla/websocket"
@@ -19,6 +20,7 @@ import (
 const (
 	EventAppDeployStarted  = "app.deploy.started"
 	EventAppDeployProgress = "app.deploy.progress"
+	EventAppDeployLog      = "app.deploy.log"
 	EventAppDeploySuccess  = "app.deploy.success"
 	EventAppDeployFailed   = "app.deploy.failed"
 	EventAppLogs           = "app.logs"
@@ -526,6 +528,22 @@ func EmitAppDeployProgress(hub *Hub, appID, deploymentID, step, message string, 
 		},
 	}
 	hub.Broadcast(event)
+	hub.BroadcastToApp(appID, event)
+}
+
+// EmitAppDeployLog emits a single build log line during deployment
+func EmitAppDeployLog(hub *Hub, appID, deploymentID string, logLine agent.LogLine) {
+	event := &Event{
+		Type:      EventAppDeployLog,
+		Timestamp: time.Now().Format(time.RFC3339),
+		Data: map[string]interface{}{
+			"app_id":        appID,
+			"deployment_id": deploymentID,
+			"timestamp":     logLine.Timestamp,
+			"level":         logLine.Level,
+			"message":       logLine.Message,
+		},
+	}
 	hub.BroadcastToApp(appID, event)
 }
 

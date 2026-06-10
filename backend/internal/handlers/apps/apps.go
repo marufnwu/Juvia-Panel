@@ -16,11 +16,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"panel-api/internal/agent"
 	"panel-api/internal/config"
 	"panel-api/internal/database"
+	"panel-api/internal/proxy"
 	"panel-api/internal/services"
 	"panel-api/internal/websocket"
 
@@ -34,15 +36,17 @@ type Handler struct {
 	config     *config.Config
 	agent      *agent.Client
 	wsHub      *websocket.Hub
+	caddyMgr   *proxy.CaddyManager
 }
 
 // NewHandler creates a new apps handler
-func NewHandler(db *database.DB, cfg *config.Config, agentClient *agent.Client, ws *websocket.Hub) *Handler {
+func NewHandler(db *database.DB, cfg *config.Config, agentClient *agent.Client, ws *websocket.Hub, caddyMgr *proxy.CaddyManager) *Handler {
 	return &Handler{
-		repo:   NewAppRepository(db),
-		config: cfg,
-		agent:  agentClient,
-		wsHub:  ws,
+		repo:     NewAppRepository(db),
+		config:   cfg,
+		agent:    agentClient,
+		wsHub:    ws,
+		caddyMgr: caddyMgr,
 	}
 }
 
@@ -302,11 +306,34 @@ func (h *Handler) GetAppLogs(c *gin.Context) {
 		tail = t
 	}
 
-	logLines, err := h.agent.GetLogs(ctx, *app.ContainerID, stream, tail)
-	if err != nil {
+	var logLines []agent.LogLine
+	var logsErr error
+
+	if app.SourceType == "docker_compose" && app.ComposeProject != nil {
+		composeFile := filepath.Join(h.config.DataDir, "apps", appID, "docker-compose.yml")
+		service := c.Query("service")
+		logLines, logsErr = h.agent.ComposeLogs(ctx, agent.ComposeLogsParams{
+			ProjectName: *app.ComposeProject,
+			ComposeFile: composeFile,
+			Service:     service,
+			Stream:      stream,
+			Tail:        tail,
+		})
+	} else {
+		if app.ContainerID == nil || *app.ContainerID == "" {
+			c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error:     "no_container",
+				Message:   "App has no container",
+				RequestID: requestID,
+			})
+			return
+		}
+		logLines, logsErr = h.agent.GetLogs(ctx, *app.ContainerID, stream, tail)
+	}
+	if logsErr != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Error:     "logs_error",
-			Message:   "Failed to get container logs: " + err.Error(),
+			Message:   "Failed to get container logs: " + logsErr.Error(),
 			RequestID: requestID,
 		})
 		return
@@ -317,6 +344,195 @@ func (h *Handler) GetAppLogs(c *gin.Context) {
 		"stream":  stream,
 		"lines":   logLines,
 	})
+}
+
+// GetAppDeploymentLogs handles GET /apps/:id/deployments/:deploymentId/logs
+func (h *Handler) GetAppDeploymentLogs(c *gin.Context) {
+	requestID := c.GetString("request_id")
+	appID := c.Param("id")
+	deploymentID := c.Param("deploymentId")
+	ctx := context.Background()
+
+	app, err := h.repo.GetAppByID(ctx, appID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:     "internal_error",
+			Message:   "Failed to get app",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	if app == nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{
+			Error:     "app_not_found",
+			Message:   "App not found",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	dep, err := h.repo.GetDeploymentByID(ctx, deploymentID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:     "internal_error",
+			Message:   "Failed to get deployment",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	if dep == nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{
+			Error:     "deployment_not_found",
+			Message:   "Deployment not found",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	if dep.AppID != appID {
+		c.JSON(http.StatusNotFound, ErrorResponse{
+			Error:     "deployment_not_found",
+			Message:   "Deployment not found for this app",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	logs := []database.DeploymentLogLine{}
+	if dep.BuildLogs != nil && *dep.BuildLogs != "" {
+		logs = parseBuildLogs(*dep.BuildLogs)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"deployment_id": deploymentID,
+		"lines":         logs,
+	})
+}
+
+// GetAppDomains handles GET /apps/:id/domains
+func (h *Handler) GetAppDomains(c *gin.Context) {
+	requestID := c.GetString("request_id")
+	appID := c.Param("id")
+	ctx := context.Background()
+
+	app, err := h.repo.GetAppByID(ctx, appID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:     "internal_error",
+			Message:   "Failed to get app",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	if app == nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{
+			Error:     "app_not_found",
+			Message:   "App not found",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	domains, err := h.repo.GetAppDomainsDetail(ctx, appID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:     "internal_error",
+			Message:   "Failed to get app domains",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"app_id":  appID,
+		"domains": domains,
+	})
+}
+
+// parseBuildLogs parses build log text into structured log lines
+func parseBuildLogs(logText string) []database.DeploymentLogLine {
+	lines := []database.DeploymentLogLine{}
+
+	lineStrs := splitLines(logText)
+
+	for _, line := range lineStrs {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		logLine := database.DeploymentLogLine{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Level:     "info",
+			Message:   line,
+		}
+
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "error") || strings.Contains(lower, "failed") {
+			logLine.Level = "error"
+		} else if strings.Contains(lower, "warning") || strings.Contains(lower, "warn") {
+			logLine.Level = "warning"
+		} else if strings.Contains(lower, "debug") {
+			logLine.Level = "debug"
+		}
+
+		lines = append(lines, logLine)
+	}
+
+	return lines
+}
+
+// splitLines splits a string into lines
+func splitLines(s string) []string {
+	var lines []string
+	for _, line := range strings.Split(s, "\n") {
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// HealthEventRequest represents the request body for health events from agent
+type HealthEventRequest struct {
+	AppID       string `json:"app_id"`
+	ContainerID string `json:"container_id"`
+	Event       string `json:"event"` // healthy, unhealthy, restarted
+	Port        int    `json:"port"`
+}
+
+// HandleHealthEvent handles health events from the agent (container restarted, etc.)
+func (h *Handler) HandleHealthEvent(c *gin.Context) {
+	var req HealthEventRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	if req.AppID == "" || req.Event == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "app_id and event are required"})
+		return
+	}
+
+	ctx := context.Background()
+
+	switch req.Event {
+	case "healthy":
+		h.repo.UpdateAppStatus(ctx, req.AppID, "running")
+		if h.wsHub != nil {
+			websocket.EmitAppStatusChanged(h.wsHub, req.AppID, "unhealthy", "running", "healthy")
+		}
+	case "restarted":
+		h.repo.UpdateAppStatus(ctx, req.AppID, "running")
+		if req.Port > 0 {
+			h.repo.UpdateAppPort(ctx, req.AppID, req.Port)
+		}
+		if h.wsHub != nil {
+			websocket.EmitAppStatusChanged(h.wsHub, req.AppID, "failed", "running", "healthy")
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 // CreateAppRequest represents the request body for creating an app
@@ -331,10 +547,12 @@ type CreateAppRequest struct {
 
 // CreateAppSourceConfig represents source configuration for creating an app
 type CreateAppSourceConfig struct {
-	Type       string `json:"type" binding:"required"` // git, upload, docker_compose
-	RepoURL    string `json:"repo_url,omitempty"`
-	Branch     string `json:"branch,omitempty"`
-	AutoDeploy bool   `json:"auto_deploy,omitempty"`
+	Type         string `json:"type" binding:"required"` // git, upload, docker_compose
+	RepoURL      string `json:"repo_url,omitempty"`
+	Branch       string `json:"branch,omitempty"`
+	AutoDeploy   bool   `json:"auto_deploy,omitempty"`
+	SSHKey       string `json:"ssh_key,omitempty"`
+	ComposeConfig string `json:"compose_config,omitempty"`
 }
 
 // CreateAppBuildConfig represents build configuration for creating an app
@@ -475,6 +693,7 @@ func (h *Handler) CreateApp(c *gin.Context) {
 		RepoURL:    req.Source.RepoURL,
 		Branch:     req.Source.Branch,
 		AutoDeploy: req.Source.AutoDeploy,
+		SSHKey:     req.Source.SSHKey,
 	}
 	
 	// Build config
@@ -551,7 +770,17 @@ func (h *Handler) CreateApp(c *gin.Context) {
 		app.HealthCheckTimeout = buildConfig.HealthCheck.Timeout
 		app.HealthCheckRetries = buildConfig.HealthCheck.Retries
 	}
-	
+
+	// Handle docker_compose specific fields
+	if req.Source.Type == "docker_compose" {
+		composeProject := fmt.Sprintf("panel-app_%s", appID)
+		app.ComposeProject = &composeProject
+		if req.Source.ComposeConfig != "" {
+			app.ComposeConfig = &req.Source.ComposeConfig
+		}
+		app.BuildStrategy = "compose"
+	}
+
 	if err := h.repo.CreateApp(ctx, app); err != nil {
 		log.Printf("Failed to create app %s: %v", appID, err)
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
@@ -790,7 +1019,17 @@ func (h *Handler) DeleteApp(c *gin.Context) {
 	}
 	
 	// Stop and remove container if running
-	if app.ContainerID != nil && *app.ContainerID != "" {
+	if app.SourceType == "docker_compose" && app.ComposeProject != nil {
+		go func() {
+			bgCtx := context.Background()
+			composeFile := filepath.Join(h.config.DataDir, "apps", appID, "docker-compose.yml")
+			h.agent.ComposeDown(bgCtx, agent.ComposeDownParams{
+				ProjectName:   *app.ComposeProject,
+				ComposeFile:   composeFile,
+				RemoveVolumes: deleteVolumes,
+			})
+		}()
+	} else if app.ContainerID != nil && *app.ContainerID != "" {
 		go func() {
 			bgCtx := context.Background()
 			h.agent.Stop(bgCtx, *app.ContainerID, 10)
@@ -863,19 +1102,42 @@ func (h *Handler) RestartApp(c *gin.Context) {
 	// Restart container via agent
 	go func() {
 		bgCtx := context.Background()
-		if app.ContainerID != nil && *app.ContainerID != "" {
-			if err := h.agent.Restart(bgCtx, *app.ContainerID); err != nil {
-				log.Printf("Failed to restart container %s: %v", *app.ContainerID, err)
-				h.repo.UpdateAppStatus(bgCtx, appID, "failed")
-				if h.wsHub != nil {
-					websocket.EmitAppStatusChanged(h.wsHub, appID, "restarting", "failed", app.HealthStatus)
-				}
-				return
+		var err error
+		if app.SourceType == "docker_compose" && app.ComposeProject != nil {
+			composeFile := filepath.Join(h.config.DataDir, "apps", appID, "docker-compose.yml")
+			_, err = h.agent.ComposeRestart(bgCtx, agent.ComposeRestartParams{
+				ProjectName: *app.ComposeProject,
+				ComposeFile: composeFile,
+			})
+		} else if app.ContainerID != nil && *app.ContainerID != "" {
+			err = h.agent.Restart(bgCtx, *app.ContainerID)
+		}
+		if err != nil {
+			log.Printf("Failed to restart app %s: %v", appID, err)
+			h.repo.UpdateAppStatus(bgCtx, appID, "failed")
+			if h.wsHub != nil {
+				websocket.EmitAppStatusChanged(h.wsHub, appID, "restarting", "failed", app.HealthStatus)
 			}
+			return
 		}
 		h.repo.UpdateAppStatus(bgCtx, appID, "running")
 		if h.wsHub != nil {
 			websocket.EmitAppStatusChanged(h.wsHub, appID, "restarting", "running", "healthy")
+		}
+
+		if app.SourceType == "docker_compose" && app.ComposeProject != nil {
+		} else if app.ContainerID != nil && *app.ContainerID != "" {
+			statusCallbackURL := fmt.Sprintf("http://%s:%d/api/v1/internal/health-event", h.config.APIHost, h.config.APIPort)
+			h.agent.StartHealthCheck(bgCtx, agent.HealthCheckParams{
+				AppID:             appID,
+				ContainerID:       *app.ContainerID,
+				Port:              app.InternalPort,
+				Path:              app.HealthCheckPath,
+				Interval:          app.HealthCheckInterval,
+				Timeout:           app.HealthCheckTimeout,
+				Retries:           app.HealthCheckRetries,
+				StatusCallbackURL: statusCallbackURL,
+			})
 		}
 	}()
 	
@@ -911,11 +1173,21 @@ func (h *Handler) StopApp(c *gin.Context) {
 	}
 	
 	// Stop container via agent if running
-	if app.ContainerID != nil && *app.ContainerID != "" {
+	if app.ContainerID != nil && *app.ContainerID != "" || app.SourceType == "docker_compose" {
 		go func() {
 			bgCtx := context.Background()
-			if err := h.agent.Stop(bgCtx, *app.ContainerID, 10); err != nil {
-				log.Printf("Failed to stop container %s: %v", *app.ContainerID, err)
+			var err error
+			if app.SourceType == "docker_compose" && app.ComposeProject != nil {
+				composeFile := filepath.Join(h.config.DataDir, "apps", appID, "docker-compose.yml")
+				_, err = h.agent.ComposeStop(bgCtx, agent.ComposeStopParams{
+					ProjectName: *app.ComposeProject,
+					ComposeFile: composeFile,
+				})
+			} else if app.ContainerID != nil && *app.ContainerID != "" {
+				err = h.agent.Stop(bgCtx, *app.ContainerID, 10)
+			}
+			if err != nil {
+				log.Printf("Failed to stop app %s: %v", appID, err)
 				h.repo.UpdateAppStatus(bgCtx, appID, "failed")
 				if h.wsHub != nil {
 					websocket.EmitAppStatusChanged(h.wsHub, appID, app.Status, "failed", app.HealthStatus)
@@ -971,7 +1243,7 @@ func (h *Handler) StartApp(c *gin.Context) {
 		return
 	}
 	
-	if err := h.repo.UpdateAppStatus(ctx, appID, "deploying"); err != nil {
+	if err := h.repo.UpdateAppStatus(ctx, appID, "starting"); err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Error:     "internal_error",
 			Message:   "Failed to start app",
@@ -979,22 +1251,310 @@ func (h *Handler) StartApp(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// Start container via agent
 	go func() {
-		if err := h.agent.Start(context.Background(), *app.ContainerID); err != nil {
+		var err error
+		if app.SourceType == "docker_compose" && app.ComposeProject != nil {
+			composeFile := filepath.Join(h.config.DataDir, "apps", appID, "docker-compose.yml")
+			_, err = h.agent.ComposeStart(context.Background(), agent.ComposeStartParams{
+				ProjectName: *app.ComposeProject,
+				ComposeFile: composeFile,
+			})
+		} else {
+			err = h.agent.Start(context.Background(), *app.ContainerID)
+		}
+		if err != nil {
 			h.repo.UpdateAppStatus(context.Background(), appID, "failed")
 			return
 		}
 		h.repo.UpdateAppStatus(context.Background(), appID, "running")
 		if h.wsHub != nil {
-			websocket.EmitAppStatusChanged(h.wsHub, appID, "deploying", "running", "healthy")
+			websocket.EmitAppStatusChanged(h.wsHub, appID, "starting", "running", "healthy")
 		}
 	}()
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "App '" + app.Name + "' is starting.",
-		"status":  "deploying",
+		"status":  "starting",
+	})
+}
+
+// RedeployApp handles POST /apps/:id/redeploy
+func (h *Handler) RedeployApp(c *gin.Context) {
+	c.Set("force", true)
+	h.TriggerDeployment(c)
+}
+
+// GetAppMetrics handles GET /apps/:id/metrics
+func (h *Handler) GetAppMetrics(c *gin.Context) {
+	requestID := c.GetString("request_id")
+	appID := c.Param("id")
+	ctx := context.Background()
+
+	app, err := h.repo.GetAppByID(ctx, appID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "internal_error", Message: "Failed to get app", RequestID: requestID})
+		return
+	}
+	if app == nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "app_not_found", Message: "App not found", RequestID: requestID})
+		return
+	}
+
+	var stats *agent.ContainerStats
+	var statsErr error
+
+	if app.SourceType == "docker_compose" && app.ComposeProject != nil {
+		services, err := h.repo.GetComposeServices(ctx, appID)
+		if err == nil && len(services) > 0 && services[0].ContainerID != nil && *services[0].ContainerID != "" {
+			stats, statsErr = h.agent.GetStats(ctx, *services[0].ContainerID)
+		}
+	} else {
+		if app.ContainerID == nil || *app.ContainerID == "" {
+			c.JSON(http.StatusOK, gin.H{"app_id": appID, "cpu_percent": 0, "memory_mb": 0, "memory_limit_mb": 0, "network_rx": 0, "network_tx": 0})
+			return
+		}
+		stats, statsErr = h.agent.GetStats(ctx, *app.ContainerID)
+	}
+
+	if statsErr != nil || stats == nil {
+		c.JSON(http.StatusOK, gin.H{"app_id": appID, "cpu_percent": 0, "memory_mb": 0, "memory_limit_mb": 0, "network_rx": 0, "network_tx": 0, "error": ""})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"app_id":          appID,
+		"cpu_percent":     stats.CPUPercent,
+		"memory_mb":       stats.MemoryUsageMB,
+		"memory_limit_mb": stats.MemoryLimitMB,
+		"network_rx":      stats.NetworkRX,
+		"network_tx":      stats.NetworkTX,
+	})
+}
+
+// GetAppHealthStatus handles GET /apps/:id/health
+func (h *Handler) GetAppHealthStatus(c *gin.Context) {
+	requestID := c.GetString("request_id")
+	appID := c.Param("id")
+	ctx := context.Background()
+
+	app, err := h.repo.GetAppByID(ctx, appID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "internal_error", Message: "Failed to get app", RequestID: requestID})
+		return
+	}
+	if app == nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "app_not_found", Message: "App not found", RequestID: requestID})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"app_id":       appID,
+		"status":       app.Status,
+		"health":       app.HealthStatus,
+		"container_id": app.ContainerID,
+	})
+}
+
+// GetAppServices handles GET /apps/:id/services
+func (h *Handler) GetAppServices(c *gin.Context) {
+	requestID := c.GetString("request_id")
+	appID := c.Param("id")
+	ctx := context.Background()
+
+	app, err := h.repo.GetAppByID(ctx, appID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "internal_error", Message: "Failed to get app", RequestID: requestID})
+		return
+	}
+	if app == nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "app_not_found", Message: "App not found", RequestID: requestID})
+		return
+	}
+
+	if app.SourceType != "docker_compose" {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "not_compose_app", Message: "App is not a compose app", RequestID: requestID})
+		return
+	}
+
+	services, err := h.repo.GetComposeServices(ctx, appID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "internal_error", Message: "Failed to get services", RequestID: requestID})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"app_id":   appID,
+		"services": services,
+	})
+}
+
+// GetAppServiceLogs handles GET /apps/:id/services/:service/logs
+func (h *Handler) GetAppServiceLogs(c *gin.Context) {
+	requestID := c.GetString("request_id")
+	appID := c.Param("id")
+	serviceName := c.Param("service")
+	ctx := context.Background()
+
+	app, err := h.repo.GetAppByID(ctx, appID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "internal_error", Message: "Failed to get app", RequestID: requestID})
+		return
+	}
+	if app == nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "app_not_found", Message: "App not found", RequestID: requestID})
+		return
+	}
+
+	if app.SourceType != "docker_compose" || app.ComposeProject == nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "not_compose_app", Message: "App is not a compose app", RequestID: requestID})
+		return
+	}
+
+	stream := c.DefaultQuery("stream", "stdout")
+	tailStr := c.DefaultQuery("tail", "100")
+	tail := 100
+	if t, err := strconv.Atoi(tailStr); err == nil && t > 0 {
+		tail = t
+	}
+
+	composeFile := filepath.Join(h.config.DataDir, "apps", appID, "docker-compose.yml")
+	logLines, err := h.agent.ComposeLogs(ctx, agent.ComposeLogsParams{
+		ProjectName: *app.ComposeProject,
+		ComposeFile: composeFile,
+		Service:     serviceName,
+		Stream:      stream,
+		Tail:        tail,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "logs_error", Message: "Failed to get service logs: " + err.Error(), RequestID: requestID})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"app_id":     appID,
+		"service":    serviceName,
+		"stream":     stream,
+		"lines":      logLines,
+	})
+}
+
+// GetAppServiceStats handles GET /apps/:id/services/:service/stats
+func (h *Handler) GetAppServiceStats(c *gin.Context) {
+	requestID := c.GetString("request_id")
+	appID := c.Param("id")
+	serviceName := c.Param("service")
+	ctx := context.Background()
+
+	app, err := h.repo.GetAppByID(ctx, appID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "internal_error", Message: "Failed to get app", RequestID: requestID})
+		return
+	}
+	if app == nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "app_not_found", Message: "App not found", RequestID: requestID})
+		return
+	}
+
+	if app.SourceType != "docker_compose" {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "not_compose_app", Message: "App is not a compose app", RequestID: requestID})
+		return
+	}
+
+	services, err := h.repo.GetComposeServices(ctx, appID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "internal_error", Message: "Failed to get services", RequestID: requestID})
+		return
+	}
+
+	var targetSvc *database.ComposeServiceRecord
+	for i := range services {
+		if services[i].ServiceName == serviceName {
+			targetSvc = &services[i]
+			break
+		}
+	}
+
+	if targetSvc == nil || targetSvc.ContainerID == nil || *targetSvc.ContainerID == "" {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "service_not_found", Message: "Service not found or has no container", RequestID: requestID})
+		return
+	}
+
+	stats, err := h.agent.GetStats(ctx, *targetSvc.ContainerID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"app_id": appID, "service": serviceName, "cpu_percent": 0, "memory_mb": 0, "memory_limit_mb": 0, "network_rx": 0, "network_tx": 0})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"app_id":          appID,
+		"service":         serviceName,
+		"cpu_percent":     stats.CPUPercent,
+		"memory_mb":       stats.MemoryUsageMB,
+		"memory_limit_mb": stats.MemoryLimitMB,
+		"network_rx":      stats.NetworkRX,
+		"network_tx":      stats.NetworkTX,
+	})
+}
+
+// UpdateAppResourcesRequest represents resource update request
+type UpdateAppResourcesRequest struct {
+	CPULimit      *float64 `json:"cpu_limit,omitempty"`
+	MemoryLimitMB *int     `json:"memory_limit_mb,omitempty"`
+}
+
+// UpdateAppResources handles PUT /apps/:id/resources
+func (h *Handler) UpdateAppResources(c *gin.Context) {
+	requestID := c.GetString("request_id")
+	appID := c.Param("id")
+	ctx := context.Background()
+
+	var req UpdateAppResourcesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid_request", Message: "Invalid request body", RequestID: requestID})
+		return
+	}
+
+	app, err := h.repo.GetAppByID(ctx, appID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "internal_error", Message: "Failed to get app", RequestID: requestID})
+		return
+	}
+	if app == nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "app_not_found", Message: "App not found", RequestID: requestID})
+		return
+	}
+
+	needsRestart := false
+	if req.CPULimit != nil {
+		app.CPULimit = req.CPULimit
+		needsRestart = true
+	}
+	if req.MemoryLimitMB != nil {
+		app.MemoryLimitMB = req.MemoryLimitMB
+		needsRestart = true
+	}
+
+	if err := h.repo.UpdateApp(ctx, app); err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "internal_error", Message: "Failed to update resources", RequestID: requestID})
+		return
+	}
+
+	if needsRestart && app.ContainerID != nil && *app.ContainerID != "" {
+		go func() {
+			bgCtx := context.Background()
+			if err := h.agent.Restart(bgCtx, *app.ContainerID); err != nil {
+				log.Printf("Failed to restart container %s after resource update: %v", *app.ContainerID, err)
+			}
+		}()
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":              appID,
+		"cpu_limit":       app.CPULimit,
+		"memory_limit_mb": app.MemoryLimitMB,
+		"restarting":      needsRestart,
 	})
 }
 
@@ -1765,6 +2325,12 @@ func (h *Handler) TriggerDeployment(c *gin.Context) {
 	}
 	
 	// Check for existing in-progress deployment
+	force := req.Force
+	if ctxForce, exists := c.Get("force"); exists {
+		if b, ok := ctxForce.(bool); ok {
+			force = force || b
+		}
+	}
 	deps, _, err := h.repo.GetDeploymentsByAppID(ctx, appID, "in_progress", 1, 1)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
@@ -1774,7 +2340,7 @@ func (h *Handler) TriggerDeployment(c *gin.Context) {
 		})
 		return
 	}
-	if len(deps) > 0 && !req.Force {
+	if len(deps) > 0 && !force {
 		c.JSON(http.StatusConflict, ErrorResponse{
 			Error:     "deployment_in_progress",
 			Message:   "A deployment is already in progress. Use force=true to override.",
@@ -1855,7 +2421,13 @@ func (h *Handler) executeDeployment(app *database.App, deployment *database.Depl
 	ctx := context.Background()
 	deploymentID := deployment.ID
 	appID := app.ID
-	
+
+	// Handle docker compose apps differently
+	if app.SourceType == "docker_compose" {
+		h.executeComposeDeployment(app, deployment)
+		return
+	}
+
 	// Update deployment status to in_progress
 	h.repo.UpdateDeploymentStatus(ctx, deploymentID, "in_progress")
 
@@ -1894,11 +2466,55 @@ func (h *Handler) executeDeployment(app *database.App, deployment *database.Depl
 		BuildCommand:  buildConfig.BuildCommand,
 		StartCommand:  buildConfig.StartCommand,
 		BuildPath:     buildPath,
+		SSHPrivateKey: sourceConfig.SSHKey,
 	}
 
 	// Execute build via agent client
 	log.Printf("[Deployment %s] Starting build: repo=%s branch=%s strategy=%s", deploymentID, sourceConfig.RepoURL, derefOrEmpty(deployment.Branch), app.BuildStrategy)
+
+	// Start a polling goroutine for real-time build log streaming
+	type buildLogState struct {
+		mu       sync.Mutex
+		lastSent int
+	}
+	bls := &buildLogState{}
+
+	pollDone := make(chan struct{})
+	if h.wsHub != nil {
+		go func() {
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-pollDone:
+					return
+				case <-ticker.C:
+					pollCtx, pollCancel := context.WithTimeout(context.Background(), 5*time.Second)
+					progress, err := h.agent.GetBuildStatus(pollCtx, appID)
+					pollCancel()
+					if err != nil || progress == nil {
+						continue
+					}
+					bls.mu.Lock()
+					logs := progress.Logs
+					if len(logs) > bls.lastSent {
+						newLines := logs[bls.lastSent:]
+						bls.lastSent = len(logs)
+						bls.mu.Unlock()
+						for _, line := range newLines {
+							websocket.EmitAppDeployLog(h.wsHub, appID, deploymentID, line)
+						}
+					} else {
+						bls.mu.Unlock()
+					}
+				}
+			}
+		}()
+	}
+
 	buildResult, err := h.agent.Build(ctx, buildParams)
+	close(pollDone)
+
 	if err != nil {
 		log.Printf("[Deployment %s] Build call error: %v", deploymentID, err)
 		h.handleDeploymentFailure(ctx, appID, deploymentID, err.Error(), "build")
@@ -1911,7 +2527,7 @@ func (h *Handler) executeDeployment(app *database.App, deployment *database.Depl
 		h.handleDeploymentFailure(ctx, appID, deploymentID, buildResult.Error, "build")
 		return
 	}
-	
+
 	if h.wsHub != nil {
 		websocket.EmitAppDeployProgress(h.wsHub, appID, deploymentID, "building", "Image built successfully", 50)
 	}
@@ -1972,7 +2588,7 @@ func (h *Handler) executeDeployment(app *database.App, deployment *database.Depl
 		EnvVars: envMap,
 		Volumes: volumeMounts,
 		Ports: []agent.PortMapping{
-			{Internal: app.InternalPort, External: 0}, // auto-assign external port
+			{Internal: app.InternalPort, External: app.ExternalPort},
 		},
 		Network:     "panel_apps",
 		Restart:     app.RestartPolicy,
@@ -2003,14 +2619,16 @@ func (h *Handler) executeDeployment(app *database.App, deployment *database.Depl
 	}
 
 	// Start health check for the container using the app's configured values
+	statusCallbackURL := fmt.Sprintf("http://%s:%d/api/v1/internal/health-event", h.config.APIHost, h.config.APIPort)
 	h.agent.StartHealthCheck(ctx, agent.HealthCheckParams{
-		AppID:       appID,
-		ContainerID: runResult.ContainerID,
-		Port:        runResult.Port,
-		Path:        healthCheckPath,
-		Interval:    app.HealthCheckInterval,
-		Timeout:     app.HealthCheckTimeout,
-		Retries:     app.HealthCheckRetries,
+		AppID:             appID,
+		ContainerID:       runResult.ContainerID,
+		Port:              runResult.Port,
+		Path:              healthCheckPath,
+		Interval:          app.HealthCheckInterval,
+		Timeout:           app.HealthCheckTimeout,
+		Retries:           app.HealthCheckRetries,
+		StatusCallbackURL: statusCallbackURL,
 	})
 
 	// Update deployment status to success
@@ -2025,6 +2643,185 @@ func (h *Handler) executeDeployment(app *database.App, deployment *database.Depl
 	
 	// Update app status to running
 	h.repo.UpdateAppStatus(ctx, appID, "running")
+}
+
+func (h *Handler) executeComposeDeployment(app *database.App, deployment *database.Deployment) {
+	ctx := context.Background()
+	deploymentID := deployment.ID
+	appID := app.ID
+
+	h.repo.UpdateDeploymentStatus(ctx, deploymentID, "in_progress")
+
+	if h.wsHub != nil {
+		websocket.EmitAppDeployProgress(h.wsHub, appID, deploymentID, "deploying", "Deploying compose stack...", 20)
+	}
+
+	if app.ComposeConfig == nil || *app.ComposeConfig == "" {
+		h.handleDeploymentFailure(ctx, appID, deploymentID, "No compose configuration found", "deploy")
+		return
+	}
+
+	composeProject := "panel-app_" + appID
+	composeDir := filepath.Join(h.config.DataDir, "apps", appID)
+	if err := os.MkdirAll(composeDir, 0755); err != nil {
+		h.handleDeploymentFailure(ctx, appID, deploymentID, "Failed to create compose directory: "+err.Error(), "deploy")
+		return
+	}
+
+	composeFilePath := filepath.Join(composeDir, "docker-compose.yml")
+	if err := os.WriteFile(composeFilePath, []byte(*app.ComposeConfig), 0644); err != nil {
+		h.handleDeploymentFailure(ctx, appID, deploymentID, "Failed to write compose file: "+err.Error(), "deploy")
+		return
+	}
+
+	envVars, _ := h.repo.GetAppEnvVars(ctx, appID)
+	envMap := make(map[string]string)
+	for _, env := range envVars {
+		value := env.Value
+		if env.IsSecret && h.config.MasterKey != "" {
+			decrypted, err := h.decryptEnvValue(env.Value, h.config.MasterKey)
+			if err == nil {
+				value = decrypted
+			}
+		}
+		envMap[env.Key] = value
+	}
+	envMap["APP_ID"] = appID
+	envMap["APP_NAME"] = app.Name
+
+	envFilePath := filepath.Join(composeDir, ".env")
+	envContent := ""
+	for k, v := range envMap {
+		envContent += k + "=" + v + "\n"
+	}
+	if err := os.WriteFile(envFilePath, []byte(envContent), 0644); err != nil {
+		h.handleDeploymentFailure(ctx, appID, deploymentID, "Failed to write env file: "+err.Error(), "deploy")
+		return
+	}
+
+	if h.wsHub != nil {
+		websocket.EmitAppDeployProgress(h.wsHub, appID, deploymentID, "deploying", "Starting compose stack...", 50)
+	}
+
+	composeUpResult, err := h.agent.ComposeUp(ctx, agent.ComposeUpParams{
+		ProjectName: composeProject,
+		ComposeFile: composeFilePath,
+		EnvFile:     envFilePath,
+		Detach:      true,
+	})
+	if err != nil {
+		h.handleDeploymentFailure(ctx, appID, deploymentID, err.Error(), "deploy")
+		return
+	}
+
+	if !composeUpResult.Success {
+		h.handleDeploymentFailure(ctx, appID, deploymentID, composeUpResult.Message, "deploy")
+		return
+	}
+
+	if h.wsHub != nil {
+		websocket.EmitAppDeployProgress(h.wsHub, appID, deploymentID, "deploying", "Retrieving service info...", 70)
+	}
+
+	composeServices, err := h.agent.ComposePs(ctx, agent.ComposePsParams{
+		ProjectName: composeProject,
+		ComposeFile: composeFilePath,
+	})
+	if err != nil {
+		log.Printf("[Deployment %s] Failed to get compose services: %v", deploymentID, err)
+	}
+
+	h.repo.DeleteComposeServices(ctx, appID)
+
+	var mainContainerID string
+	for i, svc := range composeServices {
+		svcID, _ := generateID("svc_")
+		var internalPort, externalPort *int
+		if len(svc.Ports) > 0 {
+			ports := parsePorts(svc.Ports)
+			if len(ports) > 0 {
+				internalPort = &ports[0].Internal
+				if ports[0].External > 0 {
+					externalPort = &ports[0].External
+				}
+			}
+		}
+		status := "running"
+		if svc.State != "running" {
+			status = svc.State
+		}
+		record := &database.ComposeServiceRecord{
+			ID:           svcID,
+			AppID:        appID,
+			ServiceName:  svc.Name,
+			ContainerID:  &svc.ContainerID,
+			Image:        &svc.Image,
+			InternalPort: internalPort,
+			ExternalPort: externalPort,
+			Status:       status,
+			CreatedAt:    time.Now(),
+		}
+		if err := h.repo.CreateComposeService(ctx, record); err != nil {
+			log.Printf("[Deployment %s] Failed to create compose service record: %v", deploymentID, err)
+		}
+		if i == 0 {
+			mainContainerID = svc.ContainerID
+		}
+	}
+
+	if mainContainerID != "" {
+		h.repo.UpdateAppContainer(ctx, appID, mainContainerID, "", 0)
+	}
+
+	h.repo.UpdateDeploymentStatus(ctx, deploymentID, "success")
+
+	if h.wsHub != nil {
+		websocket.EmitAppDeploySuccess(h.wsHub, appID, deploymentID, int(time.Since(deployment.CreatedAt).Seconds()))
+	}
+
+	h.repo.UpdateAppStatus(ctx, appID, "running")
+}
+
+type portMapping struct {
+	Internal int
+	External int
+}
+
+func parsePorts(portsStr string) []portMapping {
+	var result []portMapping
+	if portsStr == "" {
+		return result
+	}
+	parts := strings.Split(portsStr, ", ")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if strings.Contains(part, "->") {
+			segments := strings.Split(part, "->")
+			if len(segments) >= 2 {
+				externalPart := strings.TrimSpace(segments[0])
+				internalPart := strings.TrimSpace(segments[1])
+				var extPort, intPort int
+				if strings.Contains(externalPart, ":") {
+					extParts := strings.Split(externalPart, ":")
+					if len(extParts) == 2 {
+						fmt.Sscanf(extParts[1], "%d", &extPort)
+					}
+				} else {
+					fmt.Sscanf(externalPart, "%d", &extPort)
+				}
+				if strings.Contains(internalPart, ":") {
+					intParts := strings.Split(internalPart, ":")
+					if len(intParts) == 2 {
+						fmt.Sscanf(intParts[1], "%d", &intPort)
+					}
+				} else {
+					fmt.Sscanf(internalPart, "%d", &intPort)
+				}
+				result = append(result, portMapping{Internal: intPort, External: extPort})
+			}
+		}
+	}
+	return result
 }
 
 // AddDomainRequest represents the request body for adding a domain
@@ -2117,6 +2914,16 @@ func (h *Handler) AddDomain(c *gin.Context) {
 			RequestID: requestID,
 		})
 		return
+	}
+
+	if h.caddyMgr != nil && app.InternalPort > 0 {
+		email := h.config.Email
+		if email == "" {
+			email = "admin@localhost"
+		}
+		if err := h.caddyMgr.SetupAppDomain(appID, domain, app.InternalPort, email, req.ForceHTTPS); err != nil {
+			log.Printf("Failed to setup domain %s in Caddy: %v", domain, err)
+		}
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -2588,6 +3395,7 @@ func (h *Handler) executeRollback(app *database.App, deployment *database.Deploy
 		BuildCommand:  buildConfig.BuildCommand,
 		StartCommand:  buildConfig.StartCommand,
 		BuildPath:     buildPath,
+		SSHPrivateKey: sourceConfig.SSHKey,
 	}
 
 	// Execute build via agent client
@@ -2657,7 +3465,7 @@ func (h *Handler) executeRollback(app *database.App, deployment *database.Deploy
 		EnvVars: envMap,
 		Volumes: volumeMounts,
 		Ports: []agent.PortMapping{
-			{Internal: app.InternalPort, External: 0},
+			{Internal: app.InternalPort, External: app.ExternalPort},
 		},
 		Network:     "panel_apps",
 		Restart:     app.RestartPolicy,

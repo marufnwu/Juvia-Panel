@@ -15,6 +15,7 @@ export type WebSocketMessageType =
   | 'server.metrics'
   | 'app.deploy.started'
   | 'app.deploy.progress'
+  | 'app.deploy.log'
   | 'app.deploy.success'
   | 'app.deploy.failed'
   | 'app.status_changed'
