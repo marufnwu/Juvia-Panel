@@ -5,41 +5,8 @@
     }
 }
 
-# Serve UI and proxy API
 :2053 {
-    # Next.js static files (_next/static, etc.)
-    handle /_next/* {
-        header {
-            X-Frame-Options "DENY"
-            X-Content-Type-Options "nosniff"
-            X-XSS-Protection "1; mode=block"
-            Referrer-Policy "strict-origin-when-cross-origin"
-            Permissions-Policy "camera=(), microphone=(), geolocation=()"
-            -Server
-            Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-        }
-        file_server {
-            root /opt/panel/ui/out
-        }
-    }
-
-    # Static assets
-    handle /static/* {
-        header {
-            X-Frame-Options "DENY"
-            X-Content-Type-Options "nosniff"
-            X-XSS-Protection "1; mode=block"
-            Referrer-Policy "strict-origin-when-cross-origin"
-            Permissions-Policy "camera=(), microphone=(), geolocation=()"
-            -Server
-            Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-        }
-        file_server {
-            root /opt/panel/ui/out
-        }
-    }
-
-    # WebSocket endpoint - explicit handling for upgrades
+    # WebSocket — must come before generic /api handler
     handle /api/v1/stream {
         reverse_proxy localhost:9090 {
             header_up X-Real-IP {remote_host}
@@ -48,7 +15,7 @@
         }
     }
 
-    # Proxy API requests to Go backend
+    # API routes — proxy to Go backend
     handle /api* {
         reverse_proxy localhost:9090
     }
@@ -58,44 +25,14 @@
         reverse_proxy localhost:9090
     }
 
-    # Rewrite rules for Next.js static export catch-all routes
-    @appsRoute path /apps/*
-    handle @appsRoute {
-        rewrite /apps/* /apps/_/index.html
-        file_server {
-            root /opt/panel/ui/out
-        }
-    }
-
-    @servicesRoute path /services/*
-    handle @servicesRoute {
-        rewrite /services/* /services/_/index.html
-        file_server {
-            root /opt/panel/ui/out
-        }
-    }
-
-    @cronRoute path /cron/*
-    handle @cronRoute {
-        rewrite /cron/* /cron/_/index.html
-        file_server {
-            root /opt/panel/ui/out
-        }
-    }
-
-    # SPA fallback - serve index.html for client-side routing
+    # Everything else — proxy to Next.js server
+    # Next.js handles all UI routes, middleware, and static file serving
     handle {
-        header {
-            X-Frame-Options "DENY"
-            X-Content-Type-Options "nosniff"
-            X-XSS-Protection "1; mode=block"
-            Referrer-Policy "strict-origin-when-cross-origin"
-            Permissions-Policy "camera=(), microphone=(), geolocation=()"
-            -Server
-            Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        reverse_proxy localhost:3000 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
         }
-        root /opt/panel/ui/out
-        try_files {path} {path}/index.html /index.html
-        file_server
     }
 }

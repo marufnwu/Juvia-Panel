@@ -278,13 +278,27 @@ if [[ "$BUILD_FROM_SOURCE" == "true" ]]; then
     npm install --legacy-peer-deps
     npm run build
 
-    # Install UI (static export mode)
-    if [[ -d "$TEMP_CLONE_DIR/frontend/out" ]]; then
+    # Install UI (server mode)
+    if [[ -d "$TEMP_CLONE_DIR/frontend/.next" ]]; then
         rm -rf "$INSTALL_DIR/ui"
-        mkdir -p "$INSTALL_DIR/ui"
-        cp -r "$TEMP_CLONE_DIR/frontend/out" "$INSTALL_DIR/ui/"
+        mkdir -p "$INSTALL_DIR/ui/.next"
+        # Copy Next.js build output
+        cp -r "$TEMP_CLONE_DIR/frontend/.next/standalone" "$INSTALL_DIR/ui/.next/standalone" 2>/dev/null || \
+            cp -r "$TEMP_CLONE_DIR/frontend/.next" "$INSTALL_DIR/ui/.next"
+        cp "$TEMP_CLONE_DIR/frontend/package.json" "$INSTALL_DIR/ui/"
+        cp "$TEMP_CLONE_DIR/frontend/next.config.js" "$INSTALL_DIR/ui/"
+        cp "$TEMP_CLONE_DIR/frontend/.env.production" "$INSTALL_DIR/ui/" 2>/dev/null || true
+        # Copy static chunks (not included in standalone by default)
+        if [[ -d "$TEMP_CLONE_DIR/frontend/.next/static" ]]; then
+            mkdir -p "$INSTALL_DIR/ui/.next"
+            cp -r "$TEMP_CLONE_DIR/frontend/.next/static" "$INSTALL_DIR/ui/.next/static"
+        fi
+        # Copy node_modules for production runtime
+        if [[ -d "$TEMP_CLONE_DIR/frontend/node_modules" ]]; then
+            cp -r "$TEMP_CLONE_DIR/frontend/node_modules" "$INSTALL_DIR/ui/"
+        fi
         chown -R juvia:juvia "$INSTALL_DIR/ui"
-        log_info "UI installed to $INSTALL_DIR/ui"
+        log_info "UI installed to $INSTALL_DIR/ui (server mode)"
     fi
 
     # Copy migrations
@@ -492,12 +506,46 @@ TimeoutStopSec=30
 WantedBy=multi-user.target
 EOF
 
+cat > /etc/systemd/system/juvia-ui.service <<EOF
+[Unit]
+Description=Juvia Panel UI (Next.js Server)
+After=network.target juvia-api.service
+Requires=juvia-api.service
+
+[Service]
+Type=simple
+User=juvia
+Group=juvia
+WorkingDirectory=$INSTALL_DIR/ui
+ExecStart=/usr/bin/node $INSTALL_DIR/ui/node_modules/.bin/next start --port 3000
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=juvia-ui
+Environment=NODE_ENV=production
+Environment=PORT=3000
+EnvironmentFile=$CONFIG_DIR/env
+
+LimitNOFILE=65536
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=$INSTALL_DIR/ui/.next/cache
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 if [[ "$SKIP_CADDY" == "false" ]]; then
     cat > /etc/systemd/system/juvia-caddy.service <<EOF
 [Unit]
 Description=Juvia Panel Caddy Reverse Proxy
-After=network.target juvia-api.service
-Requires=juvia-api.service
+After=network.target juvia-api.service juvia-ui.service
+Requires=juvia-api.service juvia-ui.service
 
 [Service]
 Type=simple
@@ -519,6 +567,7 @@ systemctl daemon-reload
 
 systemctl enable juvia-agent 2>/dev/null || true
 systemctl enable juvia-api
+systemctl enable juvia-ui
 if [[ "$SKIP_CADDY" == "false" ]]; then
     systemctl enable juvia-caddy 2>/dev/null || true
 fi
@@ -549,6 +598,7 @@ step "Starting services"
 systemctl start juvia-agent 2>/dev/null || true
 sleep 2
 systemctl start juvia-api
+systemctl start juvia-ui
 
 if [[ "$SKIP_CADDY" == "false" ]]; then
     systemctl start juvia-caddy 2>/dev/null || true
@@ -647,6 +697,7 @@ jq -n \
     services_created: [
       "juvia-agent.service",
       "juvia-api.service",
+      "juvia-ui.service",
       "juvia-caddy.service"
     ],
     firewall_rules_added: $firewall,

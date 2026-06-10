@@ -34,7 +34,11 @@ build-agent:
 
 build-ui:
 	@echo "Building UI..."
-	cd $(FRONTEND_DIR) && npm run build
+	cd $(FRONTEND_DIR) && npm install --legacy-peer-deps && npm run build
+
+start-ui:
+	@echo "Starting Next.js server..."
+	cd $(FRONTEND_DIR) && npm run start
 
 test:
 	@echo "Running tests..."
@@ -50,7 +54,6 @@ clean:
 	@echo "Cleaning..."
 	@rm -rf $(BUILD_DIR)
 	@rm -rf $(FRONTEND_DIR)/.next
-	@rm -rf $(FRONTEND_DIR)/out
 
 install:
 	@echo "Installing dependencies..."
