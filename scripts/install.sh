@@ -537,7 +537,7 @@ if [[ "$SKIP_CADDY" == "false" ]]; then
 [Unit]
 Description=Juvia Panel Caddy Reverse Proxy
 After=network.target juvia-api.service juvia-ui.service
-Requires=juvia-api.service juvia-ui.service
+Requires=juvia-api.service
 
 [Service]
 Type=simple
