@@ -31,6 +31,7 @@ interface AppConfig {
   appName: string
   domain: string
   envVars: Array<{ key: string; value: string; secret: boolean }>
+  autoDeploy: boolean
 }
 
 const initialConfig: AppConfig = {
@@ -41,6 +42,7 @@ const initialConfig: AppConfig = {
   appName: '',
   domain: '',
   envVars: [],
+  autoDeploy: true,
 }
 
 function StepIndicator({ currentStep, steps }: { currentStep: Step; steps: { key: Step; label: string }[] }) {
@@ -153,6 +155,7 @@ export default function CreateAppPage() {
         type: config.sourceType === 'docker' ? 'docker_compose' : (config.sourceType || 'git'),
         repo_url: config.gitUrl || undefined,
         branch: config.branch || undefined,
+        auto_deploy: config.autoDeploy,
       },
       build: {
         strategy: config.buildStrategy,
@@ -467,7 +470,12 @@ export default function CreateAppPage() {
               </div>
 
               <label className="flex items-center gap-2 text-sm text-slate-300">
-                <input type="checkbox" defaultChecked className="rounded" />
+                <input
+                  type="checkbox"
+                  checked={config.autoDeploy}
+                  onChange={(e) => updateConfig('autoDeploy', e.target.checked)}
+                  className="rounded"
+                />
                 Auto-deploy on future pushes to {config.branch || 'main'} branch
               </label>
             </div>

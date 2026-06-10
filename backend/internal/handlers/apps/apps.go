@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -84,7 +86,30 @@ func (h *Handler) ListApps(c *gin.Context) {
 		})
 		return
 	}
-	
+
+	// Enrich with live resource usage from the agent for any running container.
+	// Use a tight per-app timeout so a slow agent can't stall the whole list.
+	for i := range apps {
+		if apps[i].ContainerID == nil || *apps[i].ContainerID == "" {
+			continue
+		}
+		if apps[i].Status != "running" {
+			continue
+		}
+		statsCtx, cancelStats := context.WithTimeout(ctx, 800*time.Millisecond)
+		stats, err := h.agent.GetStats(statsCtx, *apps[i].ContainerID)
+		cancelStats()
+		if err != nil {
+			log.Printf("WARN: failed to get stats for app %s: %v", apps[i].ID, err)
+			continue
+		}
+		apps[i].ResourceUsage = &database.ResourceUsage{
+			CPUPercent:    stats.CPUPercent,
+			MemoryMB:      stats.MemoryUsageMB,
+			MemoryLimitMB: stats.MemoryLimitMB,
+		}
+	}
+
 	totalPages := (total + params.PerPage - 1) / params.PerPage
 	
 	c.JSON(http.StatusOK, gin.H{
@@ -570,6 +595,15 @@ func (h *Handler) CreateApp(c *gin.Context) {
 	if err := h.repo.CreateDeployment(ctx, deployment); err != nil {
 		log.Printf("Failed to create deployment: %v", err)
 	}
+
+	// Emit deployment started event so UI can show progress
+	if h.wsHub != nil {
+		websocket.EmitAppDeployStarted(h.wsHub, appID, deploymentID, "", req.Source.Branch)
+		websocket.EmitAppDeployProgress(h.wsHub, appID, deploymentID, "queued", "Deployment queued", 0)
+	}
+
+	// Execute deployment asynchronously
+	go h.executeDeployment(app, deployment, buildConfig)
 
 	// Create environment variables if provided
 	if req.Environment != nil && len(req.Environment) > 0 {
@@ -1929,20 +1963,28 @@ func (h *Handler) executeDeployment(app *database.App, deployment *database.Depl
 	// Update app with container info
 	h.repo.UpdateAppContainer(ctx, appID, runResult.ContainerID, buildResult.ImageName, runResult.Port)
 
-	healthCheckPath := "/"
-	if buildConfig.HealthCheck.Path != "" {
+	// Persist build logs so users can review them later
+	if logsJSON, err := json.Marshal(buildResult.BuildLogs); err == nil {
+		h.repo.UpdateDeploymentLogs(ctx, deploymentID, string(logsJSON), buildResult.Duration)
+	}
+
+	healthCheckPath := app.HealthCheckPath
+	if healthCheckPath == "" {
+		healthCheckPath = "/health"
+	}
+	if buildConfig.HealthCheck != nil && buildConfig.HealthCheck.Path != "" {
 		healthCheckPath = buildConfig.HealthCheck.Path
 	}
 
-	// Start health check for the container
+	// Start health check for the container using the app's configured values
 	h.agent.StartHealthCheck(ctx, agent.HealthCheckParams{
 		AppID:       appID,
 		ContainerID: runResult.ContainerID,
 		Port:        runResult.Port,
 		Path:        healthCheckPath,
-		Interval:    30,
-		Timeout:     5,
-		Retries:     3,
+		Interval:    app.HealthCheckInterval,
+		Timeout:     app.HealthCheckTimeout,
+		Retries:     app.HealthCheckRetries,
 	})
 
 	// Update deployment status to success
@@ -1957,6 +1999,166 @@ func (h *Handler) executeDeployment(app *database.App, deployment *database.Depl
 	
 	// Update app status to running
 	h.repo.UpdateAppStatus(ctx, appID, "running")
+}
+
+// AddDomainRequest represents the request body for adding a domain
+type AddDomainRequest struct {
+	Domain     string `json:"domain" binding:"required"`
+	ForceHTTPS bool   `json:"force_https"`
+}
+
+// AddDomain handles POST /apps/:id/domains
+func (h *Handler) AddDomain(c *gin.Context) {
+	requestID := c.GetString("request_id")
+	appID := c.Param("id")
+	ctx := context.Background()
+
+	var req AddDomainRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:     "invalid_request",
+			Message:   "Domain is required",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	app, err := h.repo.GetAppByID(ctx, appID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:     "internal_error",
+			Message:   "Failed to get app",
+			RequestID: requestID,
+		})
+		return
+	}
+	if app == nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{
+			Error:     "app_not_found",
+			Message:   "App not found",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	domain := strings.ToLower(strings.TrimSpace(req.Domain))
+	domain = strings.TrimPrefix(domain, "http://")
+	domain = strings.TrimPrefix(domain, "https://")
+	if strings.Contains(domain, "/") || strings.Count(domain, ".") < 1 {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:     "invalid_domain",
+			Message:   "Invalid domain format",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	existing, err := h.repo.GetDomainOwner(ctx, domain)
+	if err == nil && existing != "" && existing != appID {
+		c.JSON(http.StatusConflict, ErrorResponse{
+			Error:     "domain_in_use",
+			Message:   "Domain is already assigned to another app",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	appDomains, _ := h.repo.GetAppDomainsDetail(ctx, appID)
+	for _, d := range appDomains {
+		if d.Domain == domain {
+			c.JSON(http.StatusConflict, ErrorResponse{
+				Error:     "domain_already_exists",
+				Message:   "This app already has this domain",
+				RequestID: requestID,
+			})
+			return
+		}
+	}
+
+	now := time.Now()
+	domainRow := &database.AppDomain{
+		AppID:      appID,
+		Domain:     domain,
+		IsPrimary:  false,
+		ForceHTTPS: req.ForceHTTPS,
+		SSLStatus:  "pending",
+		CreatedAt:  now,
+	}
+	if err := h.repo.CreateAppDomain(ctx, domainRow); err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:     "internal_error",
+			Message:   "Failed to add domain: " + err.Error(),
+			RequestID: requestID,
+		})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"domain":      domain,
+		"ssl_status":  "pending",
+		"force_https": req.ForceHTTPS,
+		"created_at":  now,
+		"message":     "Domain added. SSL certificate will be provisioned automatically.",
+	})
+}
+
+// RemoveDomain handles DELETE /apps/:id/domains/:domain
+func (h *Handler) RemoveDomain(c *gin.Context) {
+	requestID := c.GetString("request_id")
+	appID := c.Param("id")
+	domainParam := c.Param("domain")
+	ctx := context.Background()
+
+	domain, err := url.PathUnescape(domainParam)
+	if err != nil {
+		domain = domainParam
+	}
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	domain = strings.TrimPrefix(domain, "http://")
+	domain = strings.TrimPrefix(domain, "https://")
+
+	app, err := h.repo.GetAppByID(ctx, appID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:     "internal_error",
+			Message:   "Failed to get app",
+			RequestID: requestID,
+		})
+		return
+	}
+	if app == nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{
+			Error:     "app_not_found",
+			Message:   "App not found",
+			RequestID: requestID,
+		})
+		return
+	}
+
+	appDomains, _ := h.repo.GetAppDomainsDetail(ctx, appID)
+	for _, d := range appDomains {
+		if d.Domain == domain && d.IsPrimary {
+			c.JSON(http.StatusConflict, ErrorResponse{
+				Error:     "primary_domain",
+				Message:   "Cannot remove primary domain. Set another domain as primary first.",
+				RequestID: requestID,
+			})
+			return
+		}
+	}
+
+	if err := h.repo.DeleteAppDomain(ctx, appID, domain); err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:     "internal_error",
+			Message:   "Failed to remove domain: " + err.Error(),
+			RequestID: requestID,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Domain '" + domain + "' removed from app '" + app.Name + "'.",
+	})
 }
 
 // handleDeploymentFailure handles a failed deployment

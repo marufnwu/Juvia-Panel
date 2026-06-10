@@ -397,6 +397,20 @@ func main() {
 				c.Set("config", cfg)
 				appsHandler.Rollback(c)
 			})
+
+			// Add domain to an existing app
+			appsGroup.POST("/:id/domains", middleware.RequireRole("admin", "owner"), func(c *gin.Context) {
+				c.Set("db", db)
+				c.Set("config", cfg)
+				appsHandler.AddDomain(c)
+			})
+
+			// Remove domain from an existing app
+			appsGroup.DELETE("/:id/domains/:domain", middleware.RequireRole("admin", "owner"), func(c *gin.Context) {
+				c.Set("db", db)
+				c.Set("config", cfg)
+				appsHandler.RemoveDomain(c)
+			})
 		}
 
 		// Deployment routes (standalone)

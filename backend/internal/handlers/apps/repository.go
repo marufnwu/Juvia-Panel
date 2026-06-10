@@ -571,3 +571,22 @@ func (r *AppRepository) GetUsernameByID(ctx context.Context, userID int) (string
 	}
 	return username, err
 }
+
+// GetDomainOwner returns the app_id that owns the given domain, or "" if unowned
+func (r *AppRepository) GetDomainOwner(ctx context.Context, domain string) (string, error) {
+	var appID string
+	err := r.db.GetContext(ctx, &appID, "SELECT app_id FROM app_domains WHERE domain = ? LIMIT 1", domain)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return appID, nil
+}
+
+// DeleteAppDomain removes a domain from an app
+func (r *AppRepository) DeleteAppDomain(ctx context.Context, appID, domain string) error {
+	_, err := r.db.ExecContext(ctx, "DELETE FROM app_domains WHERE app_id = ? AND domain = ?", appID, domain)
+	return err
+}

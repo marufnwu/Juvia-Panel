@@ -250,6 +250,40 @@ export const api = {
     // Logs
     getLogs: (id: string, params?: { stream?: string; tail?: number }) =>
       request<{ app_id: string; stream: string; lines: LogLine[] }>(`/apps/${id}/logs`, { params }),
+
+    // Volumes
+    getVolumes: (id: string) =>
+      request<{ app_id: string; volumes: Array<{ id: string; host_path: string; container_path: string; size_mb: number; created_at: string }> }>(`/apps/${id}/volumes`),
+
+    createVolume: (id: string, data: { container_path: string; name?: string }) =>
+      request<{ id: string; host_path: string; container_path: string; size_mb: number; created_at: string }>(`/apps/${id}/volumes`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    deleteVolume: (id: string, volumeId: string, deleteData = false) =>
+      request<{ message: string; data_deleted: boolean }>(`/apps/${id}/volumes/${volumeId}?delete_data=${deleteData}`, {
+        method: 'DELETE',
+      }),
+
+    // Domains
+    addDomain: (id: string, data: { domain: string; force_https?: boolean }) =>
+      request<{ domain: string; ssl_status: string; force_https: boolean; created_at: string; message: string }>(`/apps/${id}/domains`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    removeDomain: (id: string, domain: string) =>
+      request<{ message: string }>(`/apps/${id}/domains/${encodeURIComponent(domain)}`, {
+        method: 'DELETE',
+      }),
+
+    // Env import
+    importEnv: (id: string, content: string) =>
+      request<{ message: string; imported: number; skipped: number }>(`/apps/${id}/env/import`, {
+        method: 'POST',
+        body: JSON.stringify({ content }),
+      }),
   },
 
   // Services
@@ -287,6 +321,17 @@ export const api = {
     restoreBackup: (id: string, backupId: string) =>
       request<void>(`/services/${id}/backups/${backupId}/restore`, {
         method: 'POST',
+      }),
+
+    connectApp: (serviceId: string, appId: string) =>
+      request<void>(`/services/${serviceId}/connect`, {
+        method: 'POST',
+        body: JSON.stringify({ app_id: appId }),
+      }),
+
+    disconnectApp: (serviceId: string, appId: string) =>
+      request<void>(`/services/${serviceId}/disconnect/${appId}`, {
+        method: 'DELETE',
       }),
   },
 
